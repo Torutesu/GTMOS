@@ -17,7 +17,8 @@ docs/
   playbooks/
     b2c-launch.md    型 #01 — B2C ローンチ(0→1)。勝ち筋 / チェックリスト / 自動化候補
   cases/
-    shogunai-launch.md  型 #01 の 1 回目の実行。7日トライアル設計 + X 運用
+    shogunai-launch.md     型 #01 の 1 回目の実行。7日トライアル設計 + X 運用(設計)
+    shogunai-gtm-checklist.md  上記の実行リスト。担当 / 完了条件 / 依存つき
 site/
   index.html         LP(EN・デフォルト)
   ja/index.html      LP(JA)
