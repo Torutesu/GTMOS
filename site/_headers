@@ -1,0 +1,17 @@
+# Cloudflare Pages / Netlify header rules.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+
+# Content is edited in place at stable URLs, so revalidate HTML every time.
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Assets are content-addressed by hand today. Bump the filename when replacing
+# one, or lower this max-age if that becomes a nuisance.
+/assets/*
+  Cache-Control: public, max-age=604800
