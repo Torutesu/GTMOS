@@ -80,6 +80,7 @@ export const Target = z
 export type Target = z.infer<typeof Target>;
 
 export const Caption = LocalizedText;
+export type Caption = LocalizedText;
 
 const withCaption = { caption: Caption.optional() };
 

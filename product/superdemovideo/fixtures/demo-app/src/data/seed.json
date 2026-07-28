@@ -1,0 +1,29 @@
+{
+  "workspace": "Northwind Design",
+  "members": [
+    { "id": "u1", "name": "Rosa Iwasaki", "email": "rosa@northwind.design", "role": "Admin", "initials": "RI" },
+    { "id": "u2", "name": "Devon Marsh", "email": "devon@northwind.design", "role": "Editor", "initials": "DM" },
+    { "id": "u3", "name": "Priya Raman", "email": "priya@northwind.design", "role": "Editor", "initials": "PR" },
+    { "id": "u4", "name": "Tomas Lindqvist", "email": "tomas@northwind.design", "role": "Viewer", "initials": "TL" }
+  ],
+  "tasks": [
+    { "id": "T-104", "title": "Rewrite the onboarding empty state", "status": "In progress", "owner": "u1", "due": "2026-08-04", "tag": "Onboarding" },
+    { "id": "T-105", "title": "Instrument the invite funnel", "status": "In progress", "owner": "u2", "due": "2026-08-05", "tag": "Analytics" },
+    { "id": "T-106", "title": "Cut first-paint on the dashboard below 1s", "status": "In progress", "owner": "u3", "due": "2026-08-07", "tag": "Performance" },
+    { "id": "T-098", "title": "Audit keyboard traps in the task composer", "status": "In review", "owner": "u3", "due": "2026-08-01", "tag": "Accessibility" },
+    { "id": "T-101", "title": "Migrate billing webhooks to the new endpoint", "status": "In review", "owner": "u2", "due": "2026-08-02", "tag": "Billing" },
+    { "id": "T-089", "title": "Add per-project weekly digest email", "status": "Todo", "owner": "u4", "due": "2026-08-11", "tag": "Notifications" },
+    { "id": "T-090", "title": "Support CSV export for archived tasks", "status": "Todo", "owner": "u1", "due": "2026-08-12", "tag": "Exports" },
+    { "id": "T-091", "title": "Batch the activity feed queries", "status": "Todo", "owner": "u2", "due": "2026-08-14", "tag": "Performance" },
+    { "id": "T-076", "title": "Ship SAML sign-in for enterprise workspaces", "status": "Done", "owner": "u1", "due": "2026-07-21", "tag": "Auth" },
+    { "id": "T-079", "title": "Replace the legacy toast component", "status": "Done", "owner": "u3", "due": "2026-07-22", "tag": "Design system" },
+    { "id": "T-082", "title": "Backfill due dates on imported tasks", "status": "Done", "owner": "u2", "due": "2026-07-24", "tag": "Data" },
+    { "id": "T-085", "title": "Document the public REST endpoints", "status": "Done", "owner": "u4", "due": "2026-07-25", "tag": "Docs" }
+  ],
+  "throughput": [
+    { "week": "Jun 30", "shipped": 4 },
+    { "week": "Jul 7", "shipped": 6 },
+    { "week": "Jul 14", "shipped": 5 },
+    { "week": "Jul 21", "shipped": 9 }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "background": {
+    "type": "gradient",
+    "from": "#0a0c10",
+    "to": "#141922"
+  },
+  "browserFrame": {
+    "chrome": "#1c222b",
+    "border": "#2a323d",
+    "dot": ["#ff5f57", "#febc2e", "#28c840"],
+    "radius": 14,
+    "chromeHeight": 38,
+    "shadow": { "blur": 60, "opacity": 0.55 }
+  },
+  "cursor": {
+    "fill": "#ffffff",
+    "stroke": "#0a0c10",
+    "size": 26,
+    "ripple": { "color": "#5b8cff", "maxRadius": 46 }
+  },
+  "caption": {
+    "font": "sans-serif",
+    "sizeRatio": 0.032,
+    "color": "#ffffff",
+    "background": "rgba(10,12,16,0.82)",
+    "accent": "#5b8cff",
+    "paddingRatio": 0.018,
+    "bottomRatio": 0.07,
+    "radius": 10
+  },
+  "watermark": {
+    "text": "Made with Superdemovideo",
+    "color": "rgba(255,255,255,0.42)",
+    "sizeRatio": 0.016
+  }
+}

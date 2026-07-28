@@ -1,0 +1,26 @@
+{
+  "name": "taskloop",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Taskloop — lightweight task tracking for small product teams.",
+  "scripts": {
+    "dev": "vite --port 3100",
+    "build": "vite build",
+    "start": "vite preview --port 3100 --host 127.0.0.1",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

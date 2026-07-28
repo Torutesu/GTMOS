@@ -1,0 +1,14 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:3100",
+      "localStorage": [
+        {
+          "name": "taskloop.session",
+          "value": "{\"email\":\"rosa@northwind.design\",\"at\":1785212291070}"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "./skeleton.schema.json",
+  "id": "launch",
+  "version": "1.0.0",
+  "name": "Launch",
+  "description": "Problem, product working, call to action. Sixty seconds, silent, built for a feed.",
+  "targetDurationMs": 60000,
+  "maxDurationMs": 70000,
+  "fps": 30,
+
+  "intro": {
+    "durationMs": 1600,
+    "comment": "Runs over the first live screen, never a title card. The opening frames must show the product working — a viewer who sees a logo decides in under three seconds that this is an advert."
+  },
+
+  "step": {
+    "cursorMoveMs": 600,
+    "clickRippleMs": 300,
+    "holdMs": 1400,
+    "minHoldMs": 800,
+    "transitionMs": 400
+  },
+
+  "outro": {
+    "durationMs": 2000
+  },
+
+  "formats": [
+    { "name": "video_169", "width": 1920, "height": 1080, "frame": "browser" },
+    { "name": "video_916", "width": 1080, "height": 1920, "frame": "focus" }
+  ]
+}
