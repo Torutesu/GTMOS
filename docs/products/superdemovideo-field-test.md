@@ -246,6 +246,31 @@ tldraw   vite   conf 0.65   specs 20   cases 7 (7 from specs)   root apps/dotcom
 kit / astro / mermaid は**そもそもアプリが存在しないリポジトリ**で、
 正しい答えは「見つからなかった」である。confidence がそれを言えるようになった。
 
+### tldraw を起動させる試行(打ち切り時点)
+
+| 到達段 | 結果 |
+| --- | --- |
+| detect | ✓ `apps/dotcom/client`、Playwright 20 spec、候補 7 件(全部 spec 由来) |
+| install | ✓ 突破(#16 corepack + #17 プロキシ + #18 `HUSKY=0`) |
+| build | ✗ `SDV-E021` |
+
+**#18:** 依存の解決も取得も全部成功した後、link step の `prepare: husky install` が
+`.git` を見つけられず abort し、install 全体を道連れにしていた。
+ingest は意図的に `.git` を消すので**必ず起きる**。
+`HUSKY=0`(husky 自身が用意する公式の停止方法)で解決。
+`--ignore-scripts` より意図的に狭くしている ── postinstall が本当に必要なアプリがあるため。
+
+**次に出た未修正の課題:** tldraw の `build` スクリプトは**テストスイートも走らせる**。
+
+```
+Error: Command failed: yarn test src/routes.test.tsx
+```
+
+reveal.js の「dev サーバーには build が要らない」と同系統だが別の話で、
+こちらは **build は必要だが、その中のテスト実行はデモに要らない**。
+「build スクリプトがテストを含む」ケースをどう扱うかは未決。
+候補: テスト失敗を非致命扱いにする / `build:app` のようなより狭いスクリプトを優先する。
+
 ### まだ埋まっていない穴
 
 - **候補の質が mock では測れない。** 全リポジトリで「1 候補・spec 由来 0 件」だが、
