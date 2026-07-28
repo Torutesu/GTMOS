@@ -10,7 +10,7 @@ export function TeamPage() {
   return (
     <>
       <h1>Team</h1>
-      <p className="sub">Everyone who can see and change work inside {workspaceName()}.</p>
+      <p className="sub">Who can see and change work in {workspaceName()}.</p>
 
       {sentTo && <div className="banner">Invitation sent to {sentTo}</div>}
 
