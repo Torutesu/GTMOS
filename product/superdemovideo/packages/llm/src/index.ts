@@ -13,6 +13,8 @@ export {
   screenControls,
   screenToSteps,
   screensToUseCases,
+  appScreensToUseCases,
+  appScreenToSteps,
 } from "./native.ts";
 
 export function createLlm(cfg: SdvConfig, templatesDir: string): LlmClient {

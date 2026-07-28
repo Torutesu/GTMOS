@@ -52,8 +52,39 @@ export interface RepoDigest {
    * control that will not be there.
    */
   screens: NativeScreen[];
+  /**
+   * Screens observed in a desktop app that was actually running.
+   *
+   * Empty except for Electron. Unlike the native list these were not written
+   * by us — the renderer is the app's real HTML and we read the controls off
+   * the live page, so a control here is one the demo will certainly find. What
+   * had to be supplied is the way in: `reach` is the event the main process
+   * would have sent, and it is recorded only after the page visibly changed in
+   * response to it.
+   */
+  appScreens: AppScreen[];
   /** Rough token size, used to decide what to trim. */
   approxTokens: number;
+}
+
+export interface AppScreenControl {
+  kind: "heading" | "button" | "link" | "field";
+  /** The accessible name — what a target resolves against, not the prettiest string. */
+  label: string;
+  /** The `title` a person reads on hover, used for prose when the label is a glyph. */
+  title: string | null;
+  href: string | null;
+}
+
+export interface AppScreen {
+  /** Short name, from the value that reached it. */
+  name: string;
+  title: string;
+  /** How the screen is reached, or null for the one the app opens on. */
+  reach: { event: string; payload: unknown } | null;
+  controls: AppScreenControl[];
+  /** The committed fixture a screen's content came from, if any. */
+  origin?: string;
 }
 
 /* ------------------------------------------------------------------ *

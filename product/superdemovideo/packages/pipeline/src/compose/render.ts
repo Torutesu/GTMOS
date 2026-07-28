@@ -182,11 +182,26 @@ export class FrameRenderer {
     const t = this.ctx.theme.browserFrame;
     const margin = Math.round(width * 0.055);
     const innerW = width - margin * 2;
-    const shot = await sharp(png).resize({ width: innerW, fit: "inside" }).toBuffer();
+
+    // Bounded on both sides, not just width. A desktop app is filmed at the
+    // window size it asks for, and a 560x460 panel scaled to the full frame
+    // width is taller than the frame — sharp then refuses to composite it, and
+    // the run dies after the filming is already done.
+    const shot = await sharp(png)
+      .resize({
+        width: innerW,
+        height: height - t.chromeHeight - margin * 2,
+        fit: "inside",
+      })
+      .toBuffer();
     const meta = await sharp(shot).metadata();
     const shotH = meta.height ?? 0;
+    const shotW = meta.width ?? innerW;
     const totalH = shotH + t.chromeHeight;
     const top = Math.round((height - totalH) / 2);
+    // The chrome hugs the screenshot rather than the frame, so a narrow window
+    // gets a narrow window rather than a wide box with a picture in the middle.
+    const left = Math.round((width - shotW) / 2);
 
     const chromeSvg = `
       <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -202,19 +217,19 @@ export class FrameRenderer {
         </defs>
         <rect width="${width}" height="${height}" fill="url(#bg)"/>
         <g filter="url(#sh)">
-          <rect x="${margin}" y="${top}" width="${innerW}" height="${totalH}"
+          <rect x="${left}" y="${top}" width="${shotW}" height="${totalH}"
                 rx="${t.radius}" fill="${t.chrome}" stroke="${t.border}"/>
         </g>
         ${t.dot
           .map(
             (c, i) =>
-              `<circle cx="${margin + 22 + i * 20}" cy="${top + t.chromeHeight / 2}" r="6" fill="${c}"/>`,
+              `<circle cx="${left + 22 + i * 20}" cy="${top + t.chromeHeight / 2}" r="6" fill="${c}"/>`,
           )
           .join("")}
       </svg>`;
 
     return sharp(Buffer.from(chromeSvg))
-      .composite([{ input: shot, top: top + t.chromeHeight, left: margin }])
+      .composite([{ input: shot, top: top + t.chromeHeight, left }])
       .png({ compressionLevel: 1 })
       .toBuffer();
   }

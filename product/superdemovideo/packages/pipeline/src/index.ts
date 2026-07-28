@@ -29,6 +29,16 @@ export {
   serveNativeCommand,
   type NativeScreen as RenderedScreen,
 } from "./stages/render-native.ts";
+export {
+  collectBridgeSeed,
+  committedFixtures,
+  declaredDefaults,
+  exploreElectron,
+  navigationValues,
+  redactSecrets,
+  declaredWindowSize,
+  windowViewport,
+} from "./stages/electron-app.ts";
 export { buildStandalone } from "./standalone.ts";
 export { publish, badgeSvg } from "./stages/publish.ts";
 export { diff, pixelDiff, DIFF_TUNING } from "./stages/diff.ts";

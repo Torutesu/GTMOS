@@ -82,6 +82,7 @@ describe("where candidates come from", () => {
     changelog: null,
     packageScripts: {},
     screens: [],
+    appScreens: [],
     approxTokens: 0,
   });
 
@@ -135,14 +136,16 @@ describe("what the test requirement applies to", () => {
     }
   });
 
-  it("lets an Electron app through, because its renderer is already HTML", () => {
-    // It still needs specs like anything else — but for that reason, not for
-    // being a desktop app.
-    try {
-      requireE2e(on("electron"));
-      throw new Error("should have refused");
-    } catch (e) {
-      expect((e as SdvError).code).toBe("SDV-E011");
-    }
+  it("does not ask an Electron app for specs either", () => {
+    // Its renderer is the app's real HTML and we serve it, so the controls are
+    // read off the live page rather than guessed. What a spec could not have
+    // given us is the way between screens: in a desktop app that is the main
+    // process moving the renderer, and a suite driving the real app would go
+    // through a main process we do not have.
+    expect(() => requireE2e(on("electron"))).not.toThrow();
+  });
+
+  it("still requires them of a web app, which is the only case the reason fits", () => {
+    expect(() => requireE2e(on("web"))).toThrow(SdvError);
   });
 });

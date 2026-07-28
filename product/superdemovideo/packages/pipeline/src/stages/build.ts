@@ -12,6 +12,7 @@ import {
   readBridgeSurface,
   type BridgeSurface,
 } from "./bridge.ts";
+import { collectBridgeSeed } from "./electron-app.ts";
 import {
   isNativePlatform,
   readRendered,
@@ -278,9 +279,23 @@ async function prepareElectronRenderer(
     ctx.log.warn("no preload source found; the renderer may still need one");
   }
 
+  // What the stand-in answers with. Read out of the app's own source: a
+  // `getSettings()` that returns nothing leaves the settings screen sitting on
+  // "Loading settings…" forever, and `const DEFAULT_SETTINGS = {…}` is the same
+  // fact already written down in the repository.
+  const seed = await collectBridgeSeed(appDir, surfaces);
+  if (Object.keys(seed).length > 0) {
+    ctx.log.info("answering the bridge from the app's own defaults", {
+      methods: Object.keys(seed).join(" "),
+    });
+  }
+
   const indexPath = join(rendererDir, "index.html");
   const html = await readFile(indexPath, "utf8");
-  await writeFile(indexPath, injectBridge(html, bridgeScript(surfaces)));
+  // A second run over the same working directory would otherwise stack a new
+  // stand-in on top of the old one, and the later script wins.
+  const clean = html.replace(/<script>\(function \(\)\s*\{\s*\/\/ Stand-in[\s\S]*?<\/script>/, "");
+  await writeFile(indexPath, injectBridge(clean, bridgeScript(surfaces, seed)));
 
   ctx.progress({
     stage: "build",

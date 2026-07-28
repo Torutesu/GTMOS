@@ -16,14 +16,22 @@ decides one thing only: where that HTML comes from.
 | Platform | Where the HTML comes from | End-to-end tests |
 | --- | --- | --- |
 | Web | The app serves its own | **Required** |
-| Electron | The renderer is HTML already. The preload's `contextBridge` calls are read and a stand-in `window.api` is injected, so the page runs without a main process | **Required** |
+| Electron | The renderer is HTML already. The preload's `contextBridge` calls are read and a stand-in `window.api` is injected, so the page runs without a main process | Not needed |
 | macOS, iOS | Rendered from the source that declares the screens — SwiftUI, UIKit | Not needed |
 | Android | Rendered from Jetpack Compose or Android XML | Not needed |
 
-A native app is not asked for specs because the reason for the requirement
-does not apply to it: we render its screens ourselves, so the markup, the roles
-and the labels are ours, and the screens are the journeys. There is no guessed
-selector to prove.
+Only a web app is asked for specs, because the reason for the requirement only
+fits one: we can neither know which journeys matter nor trust a selector we
+guessed at, and a spec answers both.
+
+A native app answers both differently — we render its screens ourselves, so the
+markup and the labels are ours and the screens are the journeys. An Electron app
+answers both by being run: its renderer is the app's real HTML, so the controls
+are read off the live page rather than guessed. What no spec would have given us
+there is the way *between* screens. In a desktop app that is the main process
+telling the renderer to move, and a suite driving the real app would go through
+a main process we do not have — so the demo delivers those events itself, from
+the app's own declared defaults and committed fixtures.
 
 What that costs: a rendered screen is **a rendition of what the source says**,
 not a screenshot of a running build. A control that only appears at runtime
@@ -181,6 +189,11 @@ by the capture executor; nothing in it is ever evaluated.
   video. "Point it at a repository" is not yet a tested claim.
 - A rendered native screen shows what the source declares and nothing else. No
   runtime state, no server data, no platform chrome beyond a device frame.
+- An Electron demo shows the renderer with a stand-in for its main process. A
+  bridge call the repository declares no default for is answered with nothing,
+  and the app renders whatever it renders in that case — in KashinAI, a
+  permission banner with a blank where the status word goes. Answering it would
+  mean claiming a state we cannot know.
 
 ## Where the design lives
 

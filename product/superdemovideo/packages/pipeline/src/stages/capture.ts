@@ -230,6 +230,26 @@ async function performStep(page: Page, step: Step, located: Locator | null): Pro
     case "wait":
       await page.waitForTimeout(step.ms);
       return;
+    case "bridge": {
+      // A step that reaches nobody is a broken step, not a no-op: the demo
+      // would carry on filming a screen it never left.
+      const delivered = await page.evaluate(
+        ([event, payload]) => {
+          const bridge = (window as unknown as { __sdvBridge?: { emit(e: string, p: unknown): number } })
+            .__sdvBridge;
+          if (!bridge) return -1;
+          return bridge.emit(event as string, payload);
+        },
+        [step.event, step.payload ?? null] as [string, unknown],
+      );
+      if (delivered < 0) {
+        throw new SdvError("SDV-E050", `no stand-in bridge on the page for "${step.event}"`);
+      }
+      if (delivered === 0) {
+        throw new SdvError("SDV-E050", `nothing is listening for "${step.event}"`);
+      }
+      break;
+    }
   }
   await settle(page, 250);
 }

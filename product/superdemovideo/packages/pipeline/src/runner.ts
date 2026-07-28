@@ -25,7 +25,7 @@ import {
   setRunStatus,
   startStage,
 } from "@sdv/db";
-import type { RepoDigest } from "@sdv/llm";
+import type { AppScreen, RepoDigest } from "@sdv/llm";
 import { ensureWorkDirs, stagePaths, type StageContext } from "./context.ts";
 import { ingest } from "./stages/ingest.ts";
 import { detect } from "./stages/detect.ts";
@@ -38,6 +38,12 @@ import { compose } from "./stages/compose.ts";
 import { emit } from "./stages/emit.ts";
 import { diff } from "./stages/diff.ts";
 import { isNativePlatform, renderNative } from "./stages/render-native.ts";
+import {
+  declaredWindowSize,
+  exploreElectron,
+  windowViewport,
+} from "./stages/electron-app.ts";
+import { launchBrowser } from "./browser.ts";
 
 export const TEMPLATES_DIR = fileURLToPath(new URL("../../../templates", import.meta.url));
 const LAUNCH_TEMPLATE = join(TEMPLATES_DIR, "launch");
@@ -98,8 +104,15 @@ export async function analyse(ctx: StageContext): Promise<AnalyseResult> {
       ).screens
     : [];
 
+  // An Electron app is understood by being run. Nothing in its source says
+  // which screens it will actually show — the renderer holds one page and the
+  // main process moves it — so the candidates come from watching the served
+  // renderer respond to the events that main process would have sent.
+  const appScreens =
+    profile.platform === "electron" ? await timed(ctx, "build", () => exploreApp(ctx, profile)) : [];
+
   const { digest, useCases } = await timed(ctx, "understand", () =>
-    understand(ctx, paths.src, profile, screens),
+    understand(ctx, paths.src, profile, screens, appScreens),
   );
 
   // Carry the digest into the production phase: it is the expensive input and
@@ -172,12 +185,24 @@ export async function produce(ctx: StageContext, opts: ProduceOptions): Promise<
   try {
     seeded = await timed(ctx, "seed", () => seed(ctx, profile, app.baseUrl, entryRoute));
 
+    // A desktop app is filmed at the size it asks to be. Filmed at the web
+    // default its text wraps in a narrow column with half the frame empty —
+    // a shape the product never has.
+    const window =
+      profile.platform === "electron"
+        ? await declaredWindowSize(profile.appRoot ? join(paths.src, profile.appRoot) : paths.src)
+        : null;
+    if (window) {
+      ctx.log.info("filming at the window size the app asks for", window);
+    }
+
     outcome = await timed(ctx, "capture", () =>
       capture(ctx, {
         baseUrl: app.baseUrl,
         flow,
         useCaseId: useCase?.id ?? flow.useCaseId,
         storageState: seeded.storageState,
+        viewport: window ? windowViewport(window) : undefined,
         outDir: paths.capture,
       }),
     );
@@ -340,21 +365,27 @@ export async function regenerate(
  * minute run that ends in a demo nobody wants.
  */
 /**
- * Where the requirement applies.
+ * Where the requirement applies: web apps, and nothing else.
  *
- * Every demo is filmed as HTML, and every platform now has a way to reach it: a
- * web app serves its own, an Electron app's renderer is HTML already behind a
- * bridge we stand in for, and a native app's screens are rendered from the
- * source that declares them.
+ * The reason for it is narrow, and worth stating exactly, because it decides
+ * who is exempt. We require specs because for a web app we can neither know
+ * which journeys matter nor trust a selector we guessed at, and a spec is the
+ * only artefact that answers both.
  *
- * That last route is also why the requirement stops there. Its reason is that
- * we do not know a web app's journeys and cannot trust selectors we guessed at.
- * Neither holds for a native app: we wrote the markup, we chose the roles and
- * the labels, and the screens are the journeys. Demanding a Playwright suite
- * would be asking for evidence we already have.
+ * A native app answers both differently: we render its screens ourselves, from
+ * the source that declares them, so the markup and the labels are ours and the
+ * screens are the journeys.
+ *
+ * An Electron app answers both by being run. Its renderer is the app's real
+ * HTML and we serve it, so the controls are read off the live page rather than
+ * guessed — stronger evidence than a spec, not weaker. What a spec would not
+ * have given us either is the way between screens: in a desktop app that is
+ * the main process telling the renderer to move, and a Playwright suite driving
+ * the real app would go through a main process we do not have. So requiring one
+ * here would have refused the app without fixing anything.
  */
 export function requireE2e(profile: RepoProfile): void {
-  if (isNativePlatform(profile.platform)) return;
+  if (isNativePlatform(profile.platform) || profile.platform === "electron") return;
 
   if (!profile.e2e) {
     throw new SdvError(
@@ -367,6 +398,31 @@ export function requireE2e(profile: RepoProfile): void {
       "SDV-E011",
       `a ${profile.e2e.kind} configuration exists but ${profile.e2e.testDir} contains no specs`,
     );
+  }
+}
+
+/**
+ * Build the desktop app, look at what it can show, and take it back down.
+ *
+ * The server does not survive this. Production builds and serves again, which
+ * is cheap the second time — the dependency tree is cached and the renderer is
+ * already on disk — and holding a process alive across an open-ended wait for
+ * someone to pick a candidate is the leak the two-phase split exists to avoid.
+ */
+async function exploreApp(ctx: StageContext, profile: RepoProfile): Promise<AppScreen[]> {
+  const paths = stagePaths(ctx.workDir);
+  const app = await build(ctx, profile);
+  const browser = await launchBrowser(ctx.cfg.chromiumPath);
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const { screens } = await exploreElectron(ctx, page, {
+      srcDir: profile.appRoot ? join(paths.src, profile.appRoot) : paths.src,
+      baseUrl: app.baseUrl,
+    });
+    return screens;
+  } finally {
+    await browser.close().catch(() => {});
+    await app.stop();
   }
 }
 

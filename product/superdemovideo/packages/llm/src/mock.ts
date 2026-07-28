@@ -10,6 +10,8 @@ import type {
   UseCaseDraft,
 } from "./types.ts";
 import {
+  appScreenToSteps,
+  appScreensToUseCases,
   renderScreensDeterministically,
   screenToSteps,
   screensToUseCases,
@@ -46,6 +48,7 @@ export function createMockLlm(): LlmClient {
      */
     async extractUseCases(digest: RepoDigest): Promise<UseCaseDraft[]> {
       if (digest.screens.length > 0) return screensToUseCases(digest.screens);
+      if (digest.appScreens.length > 0) return appScreensToUseCases(digest.appScreens);
       return digest.specs
         .filter((s) => !s.isSetup && s.actions.length > 0)
         .map((spec) => specToUseCase(spec))
@@ -54,12 +57,17 @@ export function createMockLlm(): LlmClient {
 
     async generateFlow(digest: RepoDigest, useCase: UseCase): Promise<Flow> {
       const screen = digest.screens.find((s) => s.path === useCase.entryRoute);
+      const observed = digest.appScreens.find(
+        (s) => s.name === useCase.origin || s.origin === useCase.origin,
+      );
       const spec = digest.specs.find((s) => s.file === useCase.origin && !s.isSetup);
       const steps = screen
         ? screenToSteps(screen)
-        : spec
-          ? specToSteps(spec)
-          : routeSteps(useCase.entryRoute);
+        : observed
+          ? appScreenToSteps(observed)
+          : spec
+            ? specToSteps(spec)
+            : routeSteps(useCase.entryRoute);
       return Flow.parse({
         schemaVersion: 1,
         useCaseId: useCase.id,

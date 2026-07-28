@@ -204,6 +204,7 @@ describe("the mock client on a native repository", () => {
     changelog: null,
     packageScripts: {},
     screens: [],
+    appScreens: [],
     approxTokens: 0,
     ...over,
   });

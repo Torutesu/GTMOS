@@ -1,4 +1,4 @@
-import type { NativeScreen, RenderScreensInput, UseCaseDraft } from "./types.ts";
+import type { AppScreen, NativeScreen, RenderScreensInput, UseCaseDraft } from "./types.ts";
 
 /**
  * Render native screens without a model.
@@ -249,31 +249,52 @@ function escapeHtml(s: string): string {
  */
 export interface ScreenControl {
   kind: "heading" | "button" | "link" | "field";
+  /**
+   * The accessible name, which is what a target resolves against.
+   *
+   * Not the nicest string available — the right one. An icon button reading
+   * "＋" with `title="New composer"` is found by "＋", because that is the name
+   * the browser computes, and targeting the title would simply never resolve.
+   */
   label: string;
+  /** The `title` a person would read on hover, when the label is a glyph. */
+  title: string | null;
   /** Where a link goes. */
   href: string | null;
 }
 
 export function screenControls(html: string): ScreenControl[] {
   const hits: Array<{ index: number; control: ScreenControl }> = [];
-  const add = (index: number, kind: ScreenControl["kind"], label: string, href: string | null) => {
+  const add = (
+    index: number,
+    kind: ScreenControl["kind"],
+    label: string,
+    href: string | null,
+    title: string | null = null,
+  ) => {
     const clean = decode(stripTags(label)).replace(/\s+/g, " ").trim();
     if (clean.length < 1 || clean.length > 80) return;
-    hits.push({ index, control: { kind, label: clean, href } });
+    hits.push({ index, control: { kind, label: clean, title, href } });
   };
 
   for (const m of html.matchAll(/<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/gi)) {
     add(m.index ?? 0, "heading", m[1]!, null);
   }
-  for (const m of html.matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/gi)) {
-    add(m.index ?? 0, "button", m[1]!, null);
+  for (const m of html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/gi)) {
+    const attrs = m[1]!;
+    const aria = /aria-label\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1] ?? null;
+    const title = /title\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1] ?? null;
+    // aria-label wins over content, which is how the accessible name is
+    // computed — so it has to win here too or the target will not resolve.
+    add(m.index ?? 0, "button", aria ?? m[2]!, null, title);
   }
   for (const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
     const attrs = m[1]!;
     if (/aria-current\s*=\s*["']page["']/i.test(attrs)) continue;
     const href = /href\s*=\s*["']([^"']*)["']/i.exec(attrs)?.[1] ?? null;
     if (!href || href.startsWith("#")) continue;
-    add(m.index ?? 0, "link", m[2]!, href);
+    const aria = /aria-label\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1] ?? null;
+    add(m.index ?? 0, "link", aria ?? m[2]!, href, /title\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1] ?? null);
   }
   // A field is named by the label that wraps it, the label that points at it,
   // or its own aria-label — in that order, because that is the order a browser
@@ -388,17 +409,125 @@ export function screenToSteps(screen: NativeScreen): unknown[] {
   return steps;
 }
 
+/* ---------------- observed desktop screens → candidates and flows --------- */
+
+/**
+ * Controls that take the viewer off the screen being demonstrated.
+ *
+ * Found the hard way: a flow that pressed KashinAI's settings back arrow first
+ * spent the rest of its steps looking for buttons it had just navigated away
+ * from, and three of them timed out. A demo of a screen does not leave it.
+ */
+const LEAVES_THE_SCREEN = /^(esc|escape|close|back|cancel|dismiss|done|×|✕|✖|✗|←|⟵|<|⌫)$/i;
+const LEAVES_BY_TITLE = /\b(close|back|dismiss|cancel|hide|quit|exit)\b/i;
+
+export function staysOnScreen(control: ScreenControl): boolean {
+  if (LEAVES_THE_SCREEN.test(control.label)) return false;
+  if (control.title && LEAVES_BY_TITLE.test(control.title)) return false;
+  return true;
+}
+
+/**
+ * One candidate per screen the running app actually showed.
+ *
+ * The same rule as everywhere else: a candidate may only name things we have
+ * seen. These controls were read off the live page, and the way into the
+ * screen was recorded only after the page changed in response to it.
+ */
+export function appScreensToUseCases(screens: AppScreen[]): UseCaseDraft[] {
+  return screens.slice(0, 7).map((screen) => {
+    const title = titleFor(screen);
+    const outline = screen.controls
+      .filter((c) => c.kind !== "heading")
+      .filter((c) => staysOnScreen(c))
+      .slice(0, 6)
+      .map((c) => describeControl(c));
+    return {
+      title: { en: title, ja: title },
+      hypothesis: {
+        en: `Show what the ${title} screen offers, without a walkthrough.`,
+        ja: `${title} でできることを、説明なしで見せる。`,
+      },
+      entryRoute: "/",
+      outline: outline.length > 0 ? outline : [`Open ${title}`],
+      signals: ["screen" as const],
+      origin: screen.origin ?? screen.name,
+    };
+  });
+}
+
+export function appScreenToSteps(screen: AppScreen): unknown[] {
+  const title = titleFor(screen);
+  const steps: unknown[] = [
+    { do: "goto", path: "/", caption: text("Open the app", "アプリを開く") },
+  ];
+
+  if (screen.reach) {
+    steps.push({
+      do: "bridge",
+      event: screen.reach.event,
+      payload: screen.reach.payload,
+      caption: text(`Go to ${title}`, `${title} を開く`),
+    });
+  }
+
+  const heading = screen.controls.find((c) => c.kind === "heading");
+  if (heading) {
+    steps.push({
+      do: "expect",
+      target: { role: { role: "heading", name: heading.label } },
+      caption: text(`This is ${heading.label}`, `${heading.label} の画面`),
+    });
+  }
+
+  for (const control of screen.controls) {
+    if (steps.length >= 9) break;
+    if (control.kind !== "button" || !staysOnScreen(control)) continue;
+    const spoken = readable(control);
+    steps.push({
+      do: "click",
+      target: { role: { role: "button", name: control.label } },
+      caption: text(`Press “${spoken}”`, `「${spoken}」を押す`),
+    });
+  }
+
+  if (steps.length < 3) {
+    steps.push({ do: "wait", ms: 900, caption: text("Take it in", "少し眺める") });
+  }
+  return steps;
+}
+
+function titleFor(screen: AppScreen): string {
+  const heading = screen.controls.find((c) => c.kind === "heading");
+  if (heading) return heading.label;
+  const name = screen.name.replace(/[-_]/g, " ").trim();
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 function describeControl(c: ScreenControl): string {
+  const name = readable(c);
   switch (c.kind) {
     case "button":
-      return `Press “${c.label}”`;
+      return `Press “${name}”`;
     case "link":
-      return `Go to ${c.label}`;
+      return `Go to ${name}`;
     case "field":
-      return `The “${c.label}” field`;
+      return `The “${name}” field`;
     default:
-      return c.label;
+      return name;
   }
+}
+
+/**
+ * What to call a control in a sentence.
+ *
+ * "Press ⌂" tells a viewer nothing. The title attribute is there precisely
+ * because the icon does not speak for itself, so it is used for the words while
+ * the label stays the thing the click resolves against.
+ */
+function readable(c: ScreenControl): string {
+  if (c.title && !/^[\w\s]{0,2}$/.test(c.label)) return c.label;
+  return c.title ?? c.label;
 }
 
 function text(en: string, ja: string) {

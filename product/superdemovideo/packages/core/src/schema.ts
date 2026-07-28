@@ -107,6 +107,21 @@ export const Step = z.discriminatedUnion("do", [
   z.object({ do: z.literal("hover"), target: Target, ...withCaption }),
   z.object({ do: z.literal("expect"), target: Target, ...withCaption }),
   z.object({ do: z.literal("wait"), ms: z.number().int().min(50).max(5000), ...withCaption }),
+  /**
+   * Deliver an event the desktop app's main process would normally send.
+   *
+   * An Electron renderer served on its own is a still: almost every screen past
+   * the first is reached by the main process telling it to go there, and no
+   * amount of clicking gets you to one. This is how a demo moves. The payload
+   * only ever comes from the app's own repository — a default it declares or a
+   * fixture it committed — never from anything we made up.
+   */
+  z.object({
+    do: z.literal("bridge"),
+    event: z.string().min(1),
+    payload: z.unknown().optional(),
+    ...withCaption,
+  }),
 ]);
 export type Step = z.infer<typeof Step>;
 

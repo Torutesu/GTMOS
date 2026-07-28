@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parse } from "@babel/parser";
 import type { RepoProfile } from "@sdv/core";
-import type { NativeScreen, RepoDigest, RouteInfo, SpecAction, SpecInfo } from "@sdv/llm";
+import type { AppScreen, NativeScreen, RepoDigest, RouteInfo, SpecAction, SpecInfo } from "@sdv/llm";
 import { readJson, readMaybe, type PackageJson } from "./stages/detect.ts";
 
 const MAX_README = 8_000;
@@ -20,6 +20,7 @@ export async function buildDigest(
   srcDir: string,
   profile: RepoProfile,
   screens: NativeScreen[] = [],
+  appScreens: AppScreen[] = [],
 ): Promise<RepoDigest> {
   const appDir = profile.appRoot ? join(srcDir, profile.appRoot) : srcDir;
   const pkg = (await readJson<PackageJson>(join(appDir, "package.json"))) ?? {};
@@ -41,6 +42,7 @@ export async function buildDigest(
     changelog,
     packageScripts: pkg.scripts ?? {},
     screens,
+    appScreens,
     approxTokens: 0,
   };
   digest.approxTokens = Math.round(JSON.stringify(digest).length / 3.6);
