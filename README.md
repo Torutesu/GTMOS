@@ -26,6 +26,7 @@ docs/
     superdemovideo-m1-plan.md       同・M1 実装計画 + 実装との差分記録
     superdemovideo-video-craft.md   同・動画の作法(外部リサーチ → テンプレ/検査への翻訳)
     superdemovideo-field-test.md    同・実在リポジトリでの検証結果と、そこから直した検出ロジック
+    superdemovideo-ship-plan.md     同・出荷までに残っていること(現状・未決事項・計画)
 product/
   superdemovideo/    Superdemovideo の実装(M1)。詳細は product/superdemovideo/README.md
 site/
