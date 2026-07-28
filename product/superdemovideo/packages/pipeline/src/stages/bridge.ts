@@ -124,8 +124,8 @@ export function bridgeScript(surfaces: BridgeSurface[], seed: Record<string, unk
       const entries = surface.methods
         .map((m) =>
           m.kind === "subscribe"
-            ? `    ${JSON.stringify(m.name)}: function (fn) { listeners.push(fn); return function () {}; }`
-            : `    ${JSON.stringify(m.name)}: function () { return Promise.resolve(seed[${JSON.stringify(m.name)}] ?? null); }`,
+            ? `    ${JSON.stringify(m.name)}: function (fn) { return subscribe(${JSON.stringify(m.name)}, fn); }`
+            : `    ${JSON.stringify(m.name)}: function () { return Promise.resolve(answer(${JSON.stringify(m.name)})); }`,
         )
         .join(",\n");
       return `  window[${JSON.stringify(surface.namespace)}] = {\n${entries}\n  };`;
@@ -136,8 +136,41 @@ export function bridgeScript(surfaces: BridgeSurface[], seed: Record<string, unk
   // Stand-in for the Electron preload bridge, generated from the app's own
   // preload source. It exists so the renderer can run in a browser at all.
   var seed = ${JSON.stringify(seed)};
-  var listeners = [];
+
+  // Listeners are kept per subscription, not in one pile. An app registers
+  // several — onContext, onNavigate, onCollapsedChanged — and delivering a
+  // context payload to the navigation handler would move the app somewhere
+  // nobody asked for.
+  var listeners = {};
+
+  function subscribe(name, fn) {
+    (listeners[name] = listeners[name] || []).push(fn);
+    return function () {
+      listeners[name] = (listeners[name] || []).filter(function (f) { return f !== fn; });
+    };
+  }
+
+  function answer(name) {
+    // Absent from the seed means we have nothing true to say. Returning null
+    // rather than an empty object is deliberate: the app's own default stays
+    // in place, where a made-up shape would overwrite it with blanks.
+    return Object.prototype.hasOwnProperty.call(seed, name) ? seed[name] : null;
+  }
+
 ${body}
+
+  // How a flow step delivers an event the main process would normally send.
+  // Without it the renderer is a still: every screen past the first one in an
+  // Electron app is reached by the main process telling it to go there.
+  window.__sdvBridge = {
+    subscriptions: function () { return Object.keys(listeners); },
+    emit: function (name, payload) {
+      var fns = listeners[name] || [];
+      for (var i = 0; i < fns.length; i++) fns[i](payload);
+      return fns.length;
+    },
+  };
+
   // Electron's own helper is expected by most templates even when unused.
   window.electron = window.electron || {
     ipcRenderer: {

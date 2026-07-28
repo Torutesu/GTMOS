@@ -167,3 +167,60 @@ describe("reading what a preload script exposes", () => {
     expect(readBridgeSurface("export const x = 1")).toEqual([]);
   });
 });
+
+/**
+ * The stand-in as something a demo can drive.
+ *
+ * A renderer served on its own is a still: everything past the first screen in
+ * an Electron app is reached by the main process telling it to go there. So the
+ * stand-in keeps each subscription's listeners separately and exposes a way to
+ * deliver an event to them.
+ */
+describe("driving the stand-in bridge", () => {
+  const surfaces = readBridgeSurface(`
+    import { contextBridge } from "electron";
+    const api = {
+      getSettings: () => ipcRenderer.invoke("settings:get"),
+      onNavigate: (cb) => {},
+      onContextPushed: (cb) => {},
+    };
+    contextBridge.exposeInMainWorld("api", api);
+  `);
+
+  function run(seed: Record<string, unknown> = {}): Record<string, any> {
+    const window: Record<string, any> = {};
+    new Function("window", bridgeScript(surfaces, seed))(window);
+    return window;
+  }
+
+  it("delivers an event only to the subscription it belongs to", () => {
+    const window = run();
+    const navigated: unknown[] = [];
+    const pushed: unknown[] = [];
+    window.api.onNavigate((v: unknown) => navigated.push(v));
+    window.api.onContextPushed((v: unknown) => pushed.push(v));
+
+    expect(window.__sdvBridge.emit("onNavigate", "settings")).toBe(1);
+    expect(navigated).toEqual(["settings"]);
+    // A context payload arriving at the navigation handler would move the app
+    // somewhere nobody asked for.
+    expect(pushed).toEqual([]);
+  });
+
+  it("stops delivering after the app unsubscribes", () => {
+    const window = run();
+    const seen: unknown[] = [];
+    const off = window.api.onNavigate((v: unknown) => seen.push(v));
+    off();
+    expect(window.__sdvBridge.emit("onNavigate", "settings")).toBe(0);
+    expect(seen).toEqual([]);
+  });
+
+  it("answers a call from the seed, and with null when it has nothing true to say", async () => {
+    // Null rather than an empty object on purpose: the app's own default stays
+    // in place, where a made-up shape would overwrite it with blanks.
+    const window = run({ getSettings: { appDisplayName: "KashinAI" } });
+    await expect(window.api.getSettings()).resolves.toEqual({ appDisplayName: "KashinAI" });
+    expect(await run().api.getSettings()).toBeNull();
+  });
+});
