@@ -246,3 +246,122 @@ describe("a port written as an expression in the config", () => {
     expect(portInBlock(text, "preview")).toBe(4173);
   });
 });
+
+describe("picking the application out of a large monorepo", () => {
+  // Every one of these lost to a toy package in the field: tldraw chose
+  // templates/vue, SvelteKit a test fixture, Astro a benchmark timer, Mermaid
+  // a webpack test. The names differed only in being plural.
+  const monorepo = {
+    "package.json": {
+      name: "root",
+      private: true,
+      workspaces: ["apps/*", "packages/*", "templates/*", "playgrounds/*", "benchmark/*", "tests/*"],
+      devDependencies: { vite: "5.0.0" },
+    },
+    "apps/dotcom/package.json": {
+      name: "dotcom",
+      private: true,
+      dependencies: { react: "19.0.0" },
+      scripts: { start: "vite", build: "vite build" },
+    },
+    "apps/dotcom/index.html": "<!doctype html>",
+    "apps/dotcom/src/main.tsx": "export {}",
+    "apps/dotcom/e2e/playwright.config.ts": `export default { testDir: "./tests" }`,
+    "apps/dotcom/e2e/tests/draw.spec.ts": `test("draws", async ({ page }) => {});`,
+    "templates/vue/package.json": {
+      name: "tpl-vue",
+      dependencies: { vue: "3.0.0" },
+      scripts: { dev: "vite", build: "vite build" },
+    },
+    "playgrounds/basic/package.json": {
+      name: "pg",
+      dependencies: { react: "19.0.0" },
+      scripts: { start: "vite" },
+    },
+    "benchmark/timer/package.json": { name: "timer", scripts: { start: "vite" } },
+    "tests/webpack/package.json": { name: "wp", scripts: { serve: "vite" } },
+    "packages/core/package.json": { name: "core", scripts: { build: "vite build" } },
+  };
+
+  it("chooses the app under apps/, not a template or a playground", async () => {
+    const profile = await detect(await repo(monorepo));
+    expect(profile.appRoot).toBe("apps/dotcom");
+  });
+
+  it("finds an e2e config that lives a directory below the package root", async () => {
+    // tldraw keeps its at apps/examples/e2e/playwright.config.ts. Looking only
+    // at the package root reported "no specs" for a repository with a full
+    // Playwright suite — throwing away the strongest signal there is.
+    const profile = await detect(await repo(monorepo));
+    expect(profile.e2e?.kind).toBe("playwright");
+    expect(profile.e2e?.specPaths.length).toBeGreaterThan(0);
+  });
+
+  it("says it is unsure when the only candidate is a fixture", async () => {
+    // SvelteKit's repository has no deployable app, and the best match was
+    // packages/kit/test/apps/prerendered-app-error-pages — returned at 0.95,
+    // a confident wrong answer about a directory nobody would ever demo.
+    const profile = await detect(
+      await repo({
+        "package.json": { name: "root", private: true, workspaces: ["packages/*"] },
+        "packages/lib/package.json": { name: "lib", scripts: { build: "tsc" } },
+        "packages/lib/test/apps/basic/package.json": {
+          name: "fixture",
+          dependencies: { react: "19.0.0" },
+          scripts: { start: "vite", build: "vite build" },
+        },
+        "packages/lib/test/apps/basic/index.html": "<!doctype html>",
+      }),
+    );
+    expect(profile.confidence).toBeLessThan(0.65);
+  });
+});
+
+describe("a repository that pins its package manager", () => {
+  it("goes through corepack, and uses the flag that version understands", async () => {
+    // tldraw pins yarn@4.12.0. Yarn 4 refuses to run under the machine's
+    // global yarn 1, and it renamed --frozen-lockfile to --immutable, so
+    // ignoring the pin fails twice over.
+    const profile = await detect(
+      await repo({
+        "package.json": {
+          name: "a",
+          packageManager: "yarn@4.12.0",
+          scripts: { start: "vite preview", build: "vite build" },
+          devDependencies: { vite: "5.0.0" },
+        },
+        "yarn.lock": "",
+        "index.html": "<!doctype html>",
+      }),
+    );
+    expect(profile.build.install).toBe("corepack yarn install --immutable");
+    expect(profile.build.start).toBe("corepack yarn run start");
+  });
+
+  it("keeps the classic flag for yarn 1", async () => {
+    const profile = await detect(
+      await repo({
+        "package.json": {
+          name: "a",
+          packageManager: "yarn@1.22.22",
+          scripts: { start: "vite preview", build: "vite build" },
+          devDependencies: { vite: "5.0.0" },
+        },
+        "yarn.lock": "",
+        "index.html": "<!doctype html>",
+      }),
+    );
+    expect(profile.build.install).toBe("corepack yarn install --frozen-lockfile");
+  });
+
+  it("leaves an unpinned repository alone", async () => {
+    const profile = await detect(
+      await repo({
+        "package.json": { name: "a", scripts: { start: "vite preview", build: "vite build" }, devDependencies: { vite: "5.0.0" } },
+        "package-lock.json": "{}",
+        "index.html": "<!doctype html>",
+      }),
+    );
+    expect(profile.build.install).toBe("npm ci");
+  });
+});

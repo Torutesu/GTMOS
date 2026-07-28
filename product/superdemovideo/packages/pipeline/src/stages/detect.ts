@@ -11,7 +11,8 @@ import { RepoProfile, SdvError, type Framework, type PackageManager } from "@sdv
  * and in M1 there is no fallback at all — an undetected project asks the user.
  */
 export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProfile> {
-  const appRoot = appRootHint || (await findAppRoot(srcDir));
+  const found = appRootHint ? { dir: appRootHint, confident: true } : await findAppRoot(srcDir);
+  const appRoot = found.dir;
   const dir = appRoot ? join(srcDir, appRoot) : srcDir;
 
   const pkg = await readJson<PackageJson>(join(dir, "package.json"));
@@ -20,6 +21,8 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
   }
 
   const rootPkg = appRoot ? await readJson<PackageJson>(join(srcDir, "package.json")) : null;
+  // The pin usually lives at the workspace root, not in the app package.
+  const pinned = pkg.packageManager ?? rootPkg?.packageManager;
   const framework = await detectFramework(dir, pkg, rootPkg);
   const packageManager = await detectPackageManager(dir, srcDir, pkg);
   const nodeVersion = detectNodeVersion(pkg) ?? (await readNvmrc(dir));
@@ -52,6 +55,13 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
   else if (portSource === "command") confidence += 0.15;
   else confidence -= 0.15;
 
+  // Some repositories contain no application at all — a framework, a library,
+  // a monorepo of packages. When the best candidate we could find is a test
+  // fixture or an example, saying so is the whole job. SvelteKit's repository
+  // yielded `packages/kit/test/apps/prerendered-app-error-pages` at 0.95,
+  // which is a confident wrong answer about a directory nobody would demo.
+  if (!found.confident) confidence -= 0.35;
+
   // A dev server compiles on demand, so the production build is not on the
   // path to a demo — only a way for one to fail. Someone who wants the built
   // output can put the command back through the profile override.
@@ -63,16 +73,20 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
     nodeVersion,
     appRoot,
     build: {
-      install: installCommand(packageManager, Boolean(await lockfile(dir, srcDir, packageManager))),
-      build: buildScript && needsBuild ? runCommand(packageManager, buildScript) : null,
+      install: installCommand(
+        packageManager,
+        Boolean(await lockfile(dir, srcDir, packageManager)),
+        pinned,
+      ),
+      build: buildScript && needsBuild ? runCommand(packageManager, buildScript, pinned) : null,
       start: startScript
-        ? runCommand(packageManager, startScript)
+        ? runCommand(packageManager, startScript, pinned)
         : defaultStart(framework, port),
       port,
     },
     e2e,
     env,
-    confidence: Math.min(1, Number(confidence.toFixed(2))),
+    confidence: Number(Math.min(1, Math.max(0, confidence)).toFixed(2)),
   };
 
   return RepoProfile.parse(profile);
@@ -154,21 +168,44 @@ async function lockfile(dir: string, root: string, pm: PackageManager): Promise<
   return null;
 }
 
-function installCommand(pm: PackageManager, hasLock: boolean): string {
+/**
+ * How to invoke the package manager the repository actually asked for.
+ *
+ * `"packageManager": "yarn@4.12.0"` is not decoration — yarn 4 refuses to run
+ * under yarn 1, and the machine's global yarn is whatever it is. tldraw's
+ * install failed on exactly this. Corepack ships with Node and exists to
+ * resolve the pinned version, so anything with a pin goes through it.
+ */
+export function managerCommand(pm: PackageManager, pinned: boolean): string {
+  return pinned ? `corepack ${pm}` : pm;
+}
+
+/** Yarn changed the flag name at 2.0; `--frozen-lockfile` is a hard error there. */
+function yarnMajor(pinned: string | undefined): number {
+  const m = /^yarn@(\d+)/.exec(pinned ?? "");
+  return m ? Number(m[1]) : 1;
+}
+
+function installCommand(pm: PackageManager, hasLock: boolean, pinnedVersion?: string): string {
+  const cmd = managerCommand(pm, Boolean(pinnedVersion));
   switch (pm) {
     case "pnpm":
-      return hasLock ? "pnpm install --frozen-lockfile" : "pnpm install";
+      return hasLock ? `${cmd} install --frozen-lockfile` : `${cmd} install`;
     case "yarn":
-      return hasLock ? "yarn install --frozen-lockfile" : "yarn install";
+      if (!hasLock) return `${cmd} install`;
+      return yarnMajor(pinnedVersion) >= 2
+        ? `${cmd} install --immutable`
+        : `${cmd} install --frozen-lockfile`;
     case "bun":
-      return "bun install";
+      return `${cmd} install`;
     case "npm":
-      return hasLock ? "npm ci" : "npm install";
+      return hasLock ? `${cmd} ci` : `${cmd} install`;
   }
 }
 
-function runCommand(pm: PackageManager, script: string): string {
-  return pm === "npm" ? `npm run ${script}` : `${pm} run ${script}`;
+function runCommand(pm: PackageManager, script: string, pinnedVersion?: string): string {
+  const cmd = managerCommand(pm, Boolean(pinnedVersion));
+  return pm === "npm" ? `${cmd} run ${script}` : `${cmd} run ${script}`;
 }
 
 /* -------------------------------- details -------------------------------- */
@@ -348,25 +385,65 @@ function defaultStart(framework: Framework, port: number): string {
 
 /* ---------------------------------- e2e ---------------------------------- */
 
+/**
+ * Find the end-to-end suite.
+ *
+ * The config is not always at the package root. tldraw keeps its at
+ * `apps/examples/e2e/playwright.config.ts`, one directory down, and looking
+ * only at the root reported "no e2e specs" for a repository with a full
+ * Playwright suite — throwing away the strongest signal the product has.
+ */
+export async function e2eConfigDirs(dir: string): Promise<string[]> {
+  const out = [""];
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith(".") || ALWAYS_SKIP_DIRS.has(e.name)) continue;
+    if (/^(e2e|tests?|__tests__|integration|playwright|cypress|test-e2e)$/i.test(e.name)) {
+      out.push(e.name);
+    }
+  }
+  return out;
+}
+
+const ALWAYS_SKIP_DIRS = new Set(["node_modules", "dist", "build", ".git"]);
+
 async function detectE2e(dir: string): Promise<RepoProfile["e2e"]> {
-  for (const cfg of [
-    "playwright.config.ts",
-    "playwright.config.js",
-    "playwright.config.mjs",
-  ]) {
-    const text = await readMaybe(join(dir, cfg));
-    if (text === null) continue;
-    const testDir = /testDir\s*:\s*["'`]([^"'`]+)["'`]/.exec(text)?.[1] ?? "e2e";
-    const storage = /storageState\s*:\s*["'`]([^"'`]+)["'`]/.exec(text)?.[1] ?? null;
-    const cleanDir = testDir.replace(/^\.\//, "");
-    const specPaths = await findSpecs(join(dir, cleanDir), dir);
-    return { kind: "playwright", configPath: cfg, testDir: cleanDir, specPaths, storageStatePath: storage };
+  const searchDirs = await e2eConfigDirs(dir);
+
+  for (const sub of searchDirs) {
+    const base = sub ? join(dir, sub) : dir;
+    for (const name of CONFIG_EXTENSIONS.map((ext) => `playwright.config.${ext}`)) {
+      const text = await readMaybe(join(base, name));
+      if (text === null) continue;
+      const testDir = /testDir\s*:\s*["'`]([^"'`]+)["'`]/.exec(text)?.[1] ?? ".";
+      const storage = /storageState\s*:\s*["'`]([^"'`]+)["'`]/.exec(text)?.[1] ?? null;
+      // testDir is relative to the config, which may itself be in a
+      // subdirectory. Everything we report stays relative to the app root.
+      const cleanDir = join(sub, testDir.replace(/^\.\//, "")).replace(/^\.\/?/, "");
+      const specPaths = await findSpecs(join(dir, cleanDir), dir);
+      return {
+        kind: "playwright",
+        configPath: sub ? join(sub, name) : name,
+        testDir: cleanDir || ".",
+        specPaths,
+        storageStatePath: storage,
+      };
+    }
   }
 
-  for (const cfg of ["cypress.config.ts", "cypress.config.js"]) {
-    if (await exists(join(dir, cfg))) {
-      const specPaths = await findSpecs(join(dir, "cypress"), dir);
-      return { kind: "cypress", configPath: cfg, testDir: "cypress", specPaths, storageStatePath: null };
+  for (const sub of searchDirs) {
+    const base = sub ? join(dir, sub) : dir;
+    for (const name of ["cypress.config.ts", "cypress.config.js", "cypress.config.mjs"]) {
+      if (!(await exists(join(base, name)))) continue;
+      const testDir = join(sub, "cypress").replace(/^\.\/?/, "");
+      const specPaths = await findSpecs(join(dir, testDir), dir);
+      return {
+        kind: "cypress",
+        configPath: sub ? join(sub, name) : name,
+        testDir,
+        specPaths,
+        storageStatePath: null,
+      };
     }
   }
   return null;
@@ -415,6 +492,18 @@ async function detectEnv(dir: string): Promise<RepoProfile["env"]> {
 const WEB_DEPS = ["next", "vite", "astro", "nuxt", "@sveltejs/kit", "react-scripts", "@remix-run/dev"];
 const UI_DEPS = ["react", "vue", "svelte", "solid-js", "preact", "@angular/core"];
 
+/**
+ * Directory names that mean "not the product".
+ *
+ * Written to match singular and plural alike. The previous version listed
+ * `test` but not `tests`, `playground` but not `playgrounds`, and no form of
+ * `template` or `benchmark` at all — so in four large monorepos it chose,
+ * respectively, a Vue template, a playground, a benchmark timer and a webpack
+ * test fixture, every time in preference to the actual application.
+ */
+const NOT_THE_APP =
+  /(^|\/)(examples?|templates?|starters?|playgrounds?|sandboxe?s?|benchmarks?|tests?|__tests__|fixtures?|e2e|docs?|documentation|website|scripts?|tools?|devtools?|demos?)(\/|$)/i;
+
 /** A command that puts a site on a port, as opposed to building a library. */
 const SERVES_A_SITE =
   /\b(vite|next|astro|nuxt|remix|react-scripts\s+start|ng\s+serve|http-server|serve|svelte-kit)\b/;
@@ -428,16 +517,24 @@ const SERVES_A_SITE =
  * hardcoded `apps/`, `packages/`, `sites/` search cannot see, and missing it
  * means pointing the whole pipeline at a monorepo root that has no app in it.
  */
-async function findAppRoot(srcDir: string): Promise<string> {
+export interface AppRoot {
+  dir: string;
+  /** False when the best we found was a fixture, an example or a guess. */
+  confident: boolean;
+}
+
+async function findAppRoot(srcDir: string): Promise<AppRoot> {
   const rootPkg = await readJson<PackageJson>(join(srcDir, "package.json"));
   const globs = await workspaceGlobs(srcDir, rootPkg);
   if (globs.length === 0) {
     // Not a workspace root. If it has its own package.json, it is the app.
-    if (rootPkg) return "";
+    if (rootPkg) return { dir: "", confident: true };
     for (const guess of ["app", "web", "site", "frontend", "client"]) {
-      if (await exists(join(srcDir, guess, "package.json"))) return guess;
+      if (await exists(join(srcDir, guess, "package.json"))) {
+        return { dir: guess, confident: false };
+      }
     }
-    return "";
+    return { dir: "", confident: false };
   }
 
   const candidates: string[] = [];
@@ -451,7 +548,7 @@ async function findAppRoot(srcDir: string): Promise<string> {
     for (const e of entries) if (e.isDirectory()) candidates.push(join(parent, e.name));
   }
 
-  const scored: Array<{ dir: string; score: number }> = [];
+  const scored: Array<{ dir: string; score: number; files: number }> = [];
   for (const dir of candidates) {
     const pkg = await readJson<PackageJson>(join(srcDir, dir, "package.json"));
     if (!pkg) continue;
@@ -464,8 +561,7 @@ async function findAppRoot(srcDir: string): Promise<string> {
     // What the package starts is the real signal. Its own dependency list is
     // not: in a workspace the build tool is hoisted to the root, so the app
     // package can list react and nothing else — which is exactly how the
-    // previous version of this skipped Excalidraw's actual app and settled on
-    // an example project instead.
+    // first version of this skipped Excalidraw's actual app.
     let score = 0;
     if (SERVES_A_SITE.test(command)) score += 4;
     else if (starter) score += 1;
@@ -473,14 +569,56 @@ async function findAppRoot(srcDir: string): Promise<string> {
     if (UI_DEPS.some((d) => d in deps)) score += 1;
     if (score === 0) continue;
 
+    // `apps/` is where deployable applications live, near-universally.
+    if (dir.startsWith("apps/")) score += 5;
     if (/(^|[/-])(app|web|www|site|client|frontend)([/-]|$)/.test(dir)) score += 2;
+    // An application is not published; a library is.
+    if (pkg.private === true) score += 1;
+    // Something worth an end-to-end suite is something worth demonstrating.
+    if (await hasE2eConfig(join(srcDir, dir))) score += 3;
+
     if (dir.startsWith("packages/")) score -= 1;
-    if (/(^|\/)(examples?|docs?|playground|sandbox|e2e|test)([/-]|$)/.test(dir)) score -= 3;
-    scored.push({ dir, score });
+    score -= NOT_THE_APP.test(dir) ? 6 : 0;
+
+    scored.push({ dir, score, files: await countSourceFiles(join(srcDir, dir)) });
   }
 
-  scored.sort((a, b) => b.score - a.score || a.dir.length - b.dir.length);
-  return scored[0]?.dir ?? "";
+  // Ties go to the larger package. Sorting by path length preferred
+  // `templates/vue` over `apps/dotcom/client` in every monorepo tried.
+  scored.sort((a, b) => b.score - a.score || b.files - a.files);
+  const best = scored[0];
+  if (!best) return { dir: "", confident: false };
+  // A winner that only won because everything else was worse is not an
+  // answer, it is the least bad guess — and the profile should say so.
+  return { dir: best.dir, confident: best.score >= 5 && !NOT_THE_APP.test(best.dir) };
+}
+
+async function hasE2eConfig(dir: string): Promise<boolean> {
+  for (const sub of await e2eConfigDirs(dir)) {
+    const base = sub ? join(dir, sub) : dir;
+    for (const ext of CONFIG_EXTENSIONS) {
+      if (await exists(join(base, `playwright.config.${ext}`))) return true;
+      if (await exists(join(base, `cypress.config.${ext}`))) return true;
+    }
+  }
+  return false;
+}
+
+/** Rough size of a package, used only to break ties. Bounded on purpose. */
+async function countSourceFiles(dir: string, limit = 400): Promise<number> {
+  let n = 0;
+  const walk = async (d: string, depth: number): Promise<void> => {
+    if (n >= limit || depth > 4) return;
+    const entries = await readdir(d, { withFileTypes: true }).catch(() => []);
+    for (const e of entries) {
+      if (n >= limit) return;
+      if (e.name.startsWith(".") || ALWAYS_SKIP_DIRS.has(e.name)) continue;
+      if (e.isDirectory()) await walk(join(d, e.name), depth + 1);
+      else if (/\.(tsx?|jsx?|mts|cts|vue|svelte|astro|css|html)$/.test(e.name)) n++;
+    }
+  };
+  await walk(dir, 0);
+  return n;
 }
 
 async function workspaceGlobs(srcDir: string, rootPkg: PackageJson | null): Promise<string[]> {
@@ -514,6 +652,7 @@ interface PackageJson {
   engines?: { node?: string };
   packageManager?: string;
   workspaces?: unknown;
+  private?: boolean;
 }
 
 async function exists(p: string): Promise<boolean> {

@@ -194,6 +194,58 @@ reveal.js から得たものは十分に大きい(不具合 8 件)が、
 
 依存キャッシュの効果も確認できた:**534 秒 → 108.9 秒**。
 
+---
+
+## 第 2 回(2026-07-28)— Playwright spec を持つリポジトリ
+
+第 1 回の最大の空白は「**5 本とも E2E spec を持っていなかった**」= 製品最強の信号が
+他人のコードで一度も動いていないことだった。そこを埋めるため 4 本追加。
+
+| repo | 形 |
+| --- | --- |
+| `tldraw/tldraw` | yarn4 モノレポ、`apps/dotcom/client` が実アプリ、Playwright 20 spec |
+| `sveltejs/kit` | pnpm モノレポ、**アプリは存在しない**(フレームワーク) |
+| `withastro/astro` | pnpm モノレポ、**アプリは存在しない** |
+| `mermaid-js/mermaid` | pnpm モノレポ、**ライブラリ** |
+
+### 初回の結果:4 本すべて appRoot が誤り、しかも同系統
+
+| repo | 選んだ | 実際 |
+| --- | --- | --- |
+| tldraw | `templates/vue` | `apps/dotcom/client` |
+| kit | `playgrounds/basic` | (無い) |
+| astro | `benchmark/packages/timer` | (無い) |
+| mermaid | `tests/webpack` | (無い) |
+
+**大きなモノレポで必ず一番おもちゃな package を選んでいた。**
+
+原因は 2 つ。減点語が**単数形しかなかった**(`test` はあるが `tests` は無い、
+`playground` はあるが `playgrounds` は無い、`template` と `benchmark` は無い)。
+そして同点時の決着が「**パスが短い方**」で、`templates/vue` が
+`apps/dotcom/client` に勝っていた。
+
+### 直した内容(不具合 12〜16)
+
+| # | 症状 | 修正 |
+| --- | --- | --- |
+| 12 | モノレポでおもちゃ package を選ぶ | 減点語を単複両対応に。`apps/` に +5、`private: true` に +1、**E2E 設定があれば +3**(E2E を書くほどのものは見せるほどのもの)。同点は**ソースファイル数が多い方** |
+| 13 | tldraw の Playwright 20 spec を「無し」と報告 | 設定が `apps/examples/e2e/playwright.config.ts` のように**1 階層下**にある。パッケージ直下しか見ていなかった ── **最強の信号を捨てていた** |
+| 14 | kit が**テスト用フィクスチャを confidence 0.95** で返す | 「アプリが見つからなかった」と言えるようにした。勝者が減点パスなら `confident: false` → confidence −0.35。kit 0.95→0.60、mermaid 0.45→0.10 |
+| 15 | confidence が負になりスキーマが例外 | 0〜1 にクランプ。**このバグは #14 のテストが見つけた** |
+| 16 | tldraw の install が `yarn@4.12.0` 宣言に対しグローバル yarn 1 で失敗 | `packageManager` の**バージョン指定を無視**していた。pin があれば `corepack` 経由。yarn 2+ は `--frozen-lockfile` が廃止されているので `--immutable` |
+
+### 得られたもの
+
+**tldraw で初めて、他人のコードから E2E spec 由来のユースケースが 7 件出た。**
+第 1 回の最大の空白がここで埋まった。
+
+```
+tldraw   vite   conf 0.65   specs 20   cases 7 (7 from specs)   root apps/dotcom/client
+```
+
+kit / astro / mermaid は**そもそもアプリが存在しないリポジトリ**で、
+正しい答えは「見つからなかった」である。confidence がそれを言えるようになった。
+
 ### まだ埋まっていない穴
 
 - **候補の質が mock では測れない。** 全リポジトリで「1 候補・spec 由来 0 件」だが、
