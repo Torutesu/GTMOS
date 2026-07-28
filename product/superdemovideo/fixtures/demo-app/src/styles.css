@@ -13,6 +13,35 @@
   color-scheme: dark;
 }
 
+/*
+ * Two schemes, so a capture has something to resolve.
+ *
+ * A recorded stylesheet keeps these blocks, and replaying them would let the
+ * visitor's own machine decide how the demo looks — while the video, filmed
+ * once, does not change. Capture flattens them against the scheme it filmed
+ * in, and this is what proves it.
+ */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --surface: #f6f8fa;
+    --fg: #101418;
+    color-scheme: light;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .banner {
+    box-shadow: 0 0 0 1px rgba(62, 207, 142, 0.35);
+  }
+}
+
+@media (prefers-color-scheme: dark) and (min-width: 720px) {
+  .sub {
+    letter-spacing: 0.01em;
+  }
+}
+
 * { box-sizing: border-box; }
 
 body {

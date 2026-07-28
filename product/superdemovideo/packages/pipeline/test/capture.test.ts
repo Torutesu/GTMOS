@@ -119,6 +119,27 @@ describe("capture", () => {
       const dom = JSON.parse(await readFile(join(out, step.domJson!), "utf8"));
       expect(dom.html).toContain("<body");
       expect(dom.styles.join("").length).toBeGreaterThan(100);
+
+      /**
+       * The colour scheme is settled here, not on the viewer's machine.
+       *
+       * Left alone, a replayed stylesheet keeps its
+       * `@media (prefers-color-scheme: …)` blocks and the demo renders
+       * differently for a visitor in dark mode than for one in light — while
+       * the video, filmed once, does not move. The fixture carries a block
+       * for each scheme so this is a real check rather than an assumption.
+       */
+      const css = dom.styles.join("\n");
+      expect(dom.colorScheme).toBe("dark");
+      // The block that applied is now unconditional.
+      expect(css).toContain("rgba(62, 207, 142, 0.35)");
+      // The one that did not is gone entirely, values and all.
+      expect(css).not.toContain("prefers-color-scheme: light");
+      expect(css).not.toContain("#f6f8fa");
+      // Nothing is left for a viewer's preference to change.
+      expect(css).not.toMatch(/prefers-color-scheme/);
+      // A condition that carried more than the scheme keeps the rest of it.
+      expect(css).toMatch(/@media\s*\(min-width:\s*720px\)/);
     }
 
     // interactive targets are what the demo player turns into hotspots

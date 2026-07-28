@@ -287,13 +287,79 @@ async function snapshotDom(page: Page): Promise<unknown | null> {
         }
       });
 
+      /**
+       * Decide the colour scheme here, not on the viewer's machine.
+       *
+       * A recorded stylesheet still carries its
+       * `@media (prefers-color-scheme: …)` blocks, and on replay those are
+       * evaluated against whoever is looking. The same demo then renders
+       * light for one visitor and dark for another while the video — filmed
+       * once, in one scheme — stays as it was. The two disagreeing is the one
+       * thing this product promises cannot happen.
+       *
+       * So the query is answered now, by the browser that is doing the
+       * filming: a block that applied is unwrapped so it always applies, and
+       * one that did not is dropped.
+       */
+      // Written as flat loops with no helper functions on purpose: this body
+      // is serialised and run inside the page, and a named function here gets
+      // an esbuild `__name` annotation that does not exist over there. The
+      // whole snapshot then throws and comes back empty.
+      const CSS_MEDIA_RULE = 4;
+      const sheets: string[] = [];
+
       // Same-origin stylesheets can be read out and inlined; that is what
       // makes the replayed page look like the real one without a network.
-      const sheets: string[] = [];
       for (const sheet of Array.from(document.styleSheets)) {
         try {
-          const rules = Array.from(sheet.cssRules ?? []);
-          if (rules.length) sheets.push(rules.map((r) => r.cssText).join("\n"));
+          const out: string[] = [];
+          for (const rule of Array.from(sheet.cssRules ?? [])) {
+            const media = rule as CSSMediaRule;
+            const condition =
+              rule.type === CSS_MEDIA_RULE
+                ? (media.conditionText ?? media.media?.mediaText ?? "")
+                : "";
+
+            if (!condition || !/prefers-color-scheme/i.test(condition)) {
+              out.push(rule.cssText);
+              continue;
+            }
+
+            const inner = Array.from(media.cssRules ?? [])
+              .map((r) => r.cssText)
+              .join("\n");
+            if (!inner) continue;
+
+            // Keep only the parts of the condition that applied, with the
+            // colour-scheme term removed from each — it has been answered.
+            const kept: string[] = [];
+            let unconditional = false;
+            for (const part of condition.split(",")) {
+              const term = part.trim();
+              if (!term) continue;
+              if (!/prefers-color-scheme/i.test(term)) {
+                kept.push(term);
+                continue;
+              }
+              if (!window.matchMedia(term).matches) continue;
+              const rest = term
+                .replace(/\(\s*prefers-color-scheme\s*:\s*[\w-]+\s*\)/gi, "")
+                .replace(/^\s*and\b|\band\s*$/gi, "")
+                .replace(/\s{2,}/g, " ")
+                .trim();
+              if (!rest) {
+                unconditional = true;
+                break;
+              }
+              kept.push(rest);
+            }
+
+            if (unconditional) out.push(inner);
+            else if (kept.length) out.push(`@media ${kept.join(", ")} {\n${inner}\n}`);
+            // else: it did not apply while filming, so it is gone.
+          }
+          const text = out.filter(Boolean).join("\n");
+          if (text) sheets.push(text);
         } catch {
           /* cross-origin sheet — the asset map will carry the href instead */
         }
@@ -308,6 +374,11 @@ async function snapshotDom(page: Page): Promise<unknown | null> {
         url: location.pathname + location.search,
         scroll: { x: window.scrollX, y: window.scrollY },
         viewport: { width: window.innerWidth, height: window.innerHeight },
+        // Recorded so a reader of the bundle can see which scheme the video
+        // and the demo were both built from.
+        colorScheme: window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light",
       };
     });
   } catch {
