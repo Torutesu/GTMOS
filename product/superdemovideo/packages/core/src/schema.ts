@@ -19,6 +19,8 @@ export const Framework = z.enum([
   "sveltekit",
   "nuxt",
   "static",
+  /** A desktop app. Recognised so we can say so, not because we can film it. */
+  "electron",
   "unknown",
 ]);
 export type Framework = z.infer<typeof Framework>;

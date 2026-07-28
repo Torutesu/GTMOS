@@ -286,3 +286,50 @@ reveal.js の「dev サーバーには build が要らない」と同系統だ�
 ### 次の回で足すべきリポジトリ
 
 Playwright spec を持つ実在アプリ。最強の信号が使われる経路を通すため。
+
+---
+
+## 第 3 回(2026-07-28)— 自社リポジトリ KashinAI
+
+`https://github.com/Torutesu/KashinAI`(`context-assistant`)。
+**A(自社だけ)の 1 人目の顧客になるはずのリポジトリ。**
+
+### 結果:**撮影できない。** 独立した理由が 3 つある
+
+| # | 理由 | 根拠 |
+| --- | --- | --- |
+| 1 | **Electron デスクトップアプリ** | `electron-vite dev` / `electron@33` / `electron-builder`。`src/main` `src/preload` `src/renderer` 構成 |
+| 2 | **画面が Electron の外では動かない** | `App.tsx` の最初の `useEffect` が `window.api.onContextPushed(...)` を呼ぶ。`window.api` は preload が注入するので、素のブラウザでは未定義 → マウント時に例外。`window.api` 参照は App.tsx だけで 25 箇所 |
+| 3 | **E2E テストが無い** | `tests/unit` のみ(`node --test`)。Playwright / Cypress の設定なし |
+
+加えて macOS 前提:`systemPreferences.isTrustedAccessibilityClient` /
+`getMediaAccessStatus('screen')` は macOS 専用 API。この Linux コンテナでは
+Electron 対応を作っても、そのまま起動するとは限らない。
+
+### 直したこと
+
+**理由 3 だけを報告するのは有害だった。**「E2E テストを書いてください」と言われた人が
+テストを書いても、まだ撮影できない。より大きい理由を先に言う必要がある。
+
+- `Framework` に `electron` を追加。**Vite より先に判定する**
+  ── Electron プロジェクトはレンダラ用に vite も持っているので、
+  順番を間違えると Web アプリとして扱ってしまう
+- `SDV-E012`(デスクトップアプリ)を追加し、E011 より先に投げる
+- テストで固定:E2E テストがあっても Electron なら E012 で断る。**問題はテストではない**
+
+```
+kashinai  FAILED  SDV-E012: this project builds an Electron desktop app;
+                  capturing one is not implemented        (0.2s)
+```
+
+### 事業上の含意(技術より重い)
+
+**A(自社だけ)の想定顧客が Web アプリではなかった。**
+
+Superdemovideo はパイプライン全体が「ポートで待ち受ける Web アプリ」を前提にしている。
+ingest・detect・build・seed・capture のすべてが URL に対するブラウザ操作で組まれている。
+KashinAI を撮るには、この前提を変える作業が要る。
+
+要件定義 §11 の未決 #5(「SwiftUI 変換を捨ててシミュレータ一本にするか」)が、
+ここで具体的な形になって戻ってきた。**デスクトップアプリを撮るかどうかは、
+機能の追加ではなく対象の定義の変更である。**

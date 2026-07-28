@@ -321,6 +321,19 @@ export async function regenerate(
  * minute run that ends in a demo nobody wants.
  */
 export function requireE2e(profile: RepoProfile): void {
+  // A desktop app fails for a bigger reason than a missing test suite, and
+  // reporting the smaller one would send someone off to write specs that
+  // still could not be filmed. Superdemovideo drives a browser at a URL; an
+  // Electron window is not at a URL, and its interface generally stops
+  // working the moment it is loaded outside Electron, because it reaches for
+  // APIs the preload script provides.
+  if (profile.framework === "electron") {
+    throw new SdvError(
+      "SDV-E012",
+      "this project builds an Electron desktop app; capturing one is not implemented",
+    );
+  }
+
   if (!profile.e2e) {
     throw new SdvError(
       "SDV-E011",

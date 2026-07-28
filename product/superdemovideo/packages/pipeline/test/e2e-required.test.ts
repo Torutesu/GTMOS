@@ -116,3 +116,41 @@ describe("where candidates come from", () => {
     expect(cases).toHaveLength(0);
   });
 });
+
+describe("a desktop application", () => {
+  const electron = (e2e: RepoProfile["e2e"]): RepoProfile => ({
+    ...profile(e2e),
+    framework: "electron",
+  });
+
+  it("is refused for being a desktop app, not for missing tests", async () => {
+    // KashinAI is Electron. Reporting the missing test suite would send
+    // someone off to write specs for something that still could not be
+    // filmed: an Electron window is not at a URL, and its interface stops
+    // working outside Electron because it reaches for preload APIs.
+    try {
+      requireE2e(electron(null));
+      throw new Error("should have refused");
+    } catch (e) {
+      expect((e as SdvError).code).toBe("SDV-E012");
+    }
+  });
+
+  it("is refused even when it does have a test suite", async () => {
+    // The tests are not the problem. Being a desktop app is.
+    try {
+      requireE2e(
+        electron({
+          kind: "playwright",
+          configPath: "playwright.config.ts",
+          testDir: "e2e",
+          specPaths: ["e2e/a.spec.ts"],
+          storageStatePath: null,
+        }),
+      );
+      throw new Error("should have refused");
+    } catch (e) {
+      expect((e as SdvError).code).toBe("SDV-E012");
+    }
+  });
+});

@@ -10,6 +10,7 @@ export const ERROR_CODES = [
   "SDV-E001", // repo too large / unfetchable
   "SDV-E010", // framework not detected
   "SDV-E011", // no end-to-end tests to derive a demo from
+  "SDV-E012", // desktop application, not a web app
   "SDV-E020", // dependency install failed
   "SDV-E021", // build failed
   "SDV-E022", // start failed / port never opened
@@ -41,6 +42,10 @@ const SPECS: Record<ErrorCode, ErrorSpec> = {
   "SDV-E011": {
     title: "This repository has no end-to-end tests",
     hint: "Superdemovideo builds demos from Playwright or Cypress specs. Add one spec for the journey you want shown, then run again.",
+  },
+  "SDV-E012": {
+    title: "This is a desktop application, not a web app",
+    hint: "Superdemovideo drives a browser against a running site. An Electron app's window is not reachable that way, and its interface usually stops working outside Electron. Desktop capture is not built yet.",
   },
   "SDV-E020": {
     title: "Installing dependencies failed",

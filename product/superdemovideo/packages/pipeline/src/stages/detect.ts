@@ -122,6 +122,17 @@ async function detectFramework(
     return false;
   };
 
+  // Electron first: an Electron project also carries vite or webpack for its
+  // renderer, so anything checked before this would claim it as a web app.
+  if (
+    "electron" in deps ||
+    "electron-vite" in deps ||
+    "electron-builder" in deps ||
+    (await hasConfig("electron.vite.config")) ||
+    (await hasConfig("forge.config"))
+  ) {
+    return "electron";
+  }
   if ((await hasConfig("next.config")) || "next" in deps) return "nextjs";
   if ((await hasConfig("astro.config")) || "astro" in deps) return "astro";
   if ((await hasConfig("svelte.config")) || "@sveltejs/kit" in deps) return "sveltekit";
@@ -240,6 +251,7 @@ const DEFAULT_PORTS: Record<Framework, number> = {
   sveltekit: 4173,
   nuxt: 3000,
   static: 8080,
+  electron: 5173,
   unknown: 3000,
 };
 
