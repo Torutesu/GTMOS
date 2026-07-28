@@ -19,23 +19,38 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
     throw new SdvError("SDV-E010", `no package.json under ${appRoot || "the repository root"}`);
   }
 
-  const framework = await detectFramework(dir, pkg);
+  const rootPkg = appRoot ? await readJson<PackageJson>(join(srcDir, "package.json")) : null;
+  const framework = await detectFramework(dir, pkg, rootPkg);
   const packageManager = await detectPackageManager(dir, srcDir, pkg);
   const nodeVersion = detectNodeVersion(pkg) ?? (await readNvmrc(dir));
   const scripts = pkg.scripts ?? {};
 
   const buildScript = pickScript(scripts, ["build"]);
   const startScript = pickScript(scripts, ["start", "preview", "serve"]);
-  const port = await detectPort(dir, scripts, framework);
+  const { port, source: portSource } = await detectPort(dir, scripts, framework, startScript);
 
   const e2e = await detectE2e(dir);
   const env = await detectEnv(dir);
 
-  let confidence = 0.5;
-  if (framework !== "unknown") confidence += 0.25;
-  if (buildScript) confidence += 0.1;
+  /**
+   * How much of this we actually know.
+   *
+   * The number used to count what we found in package.json, which meant any
+   * repository with a build and a start script scored 0.95 — including ones
+   * whose port we had guessed from a table and which therefore could not
+   * start at all. A confident wrong answer is worse than an unsure one,
+   * because nobody is asked to check it. So the port now carries real weight:
+   * falling back to a default means we do not know where the app listens, and
+   * the profile should say so.
+   */
+  let confidence = 0.4;
+  if (framework !== "unknown") confidence += 0.2;
+  if (buildScript) confidence += 0.05;
   if (startScript) confidence += 0.1;
   if (e2e) confidence += 0.05;
+  if (portSource === "flag" || portSource === "config") confidence += 0.2;
+  else if (portSource === "command") confidence += 0.15;
+  else confidence -= 0.15;
 
   const profile: RepoProfile = {
     framework,
@@ -60,18 +75,41 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
 
 /* ------------------------------ framework -------------------------------- */
 
-async function detectFramework(dir: string, pkg: PackageJson): Promise<Framework> {
-  const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
-  const has = async (f: string) => exists(join(dir, f));
+const CONFIG_EXTENSIONS = ["js", "cjs", "mjs", "ts", "mts", "cts"];
 
-  if ((await has("next.config.js")) || (await has("next.config.mjs")) || (await has("next.config.ts")) || "next" in deps)
-    return "nextjs";
-  if ((await has("astro.config.mjs")) || (await has("astro.config.ts")) || "astro" in deps) return "astro";
-  if ((await has("svelte.config.js")) || "@sveltejs/kit" in deps) return "sveltekit";
-  if ((await has("nuxt.config.ts")) || "nuxt" in deps) return "nuxt";
-  if ((await has("vite.config.ts")) || (await has("vite.config.js")) || "vite" in deps) return "vite";
+/**
+ * Which framework this is.
+ *
+ * `rootPkg` matters in a workspace: the build tool is installed once at the
+ * repository root, so the app package itself often lists only react. Reading
+ * the app's dependencies alone reported Excalidraw — a Vite application with
+ * a vite.config beside its index.html — as a folder of static files.
+ */
+async function detectFramework(
+  dir: string,
+  pkg: PackageJson,
+  rootPkg: PackageJson | null = null,
+): Promise<Framework> {
+  const deps = {
+    ...(pkg.dependencies ?? {}),
+    ...(pkg.devDependencies ?? {}),
+    ...(rootPkg?.dependencies ?? {}),
+    ...(rootPkg?.devDependencies ?? {}),
+  };
+  const hasConfig = async (base: string) => {
+    for (const ext of CONFIG_EXTENSIONS) {
+      if (await exists(join(dir, `${base}.${ext}`))) return true;
+    }
+    return false;
+  };
+
+  if ((await hasConfig("next.config")) || "next" in deps) return "nextjs";
+  if ((await hasConfig("astro.config")) || "astro" in deps) return "astro";
+  if ((await hasConfig("svelte.config")) || "@sveltejs/kit" in deps) return "sveltekit";
+  if ((await hasConfig("nuxt.config")) || "nuxt" in deps) return "nuxt";
+  if ((await hasConfig("vite.config")) || "vite" in deps) return "vite";
   if ("react-scripts" in deps) return "cra";
-  if (await has("index.html")) return "static";
+  if (await exists(join(dir, "index.html"))) return "static";
   return "unknown";
 }
 
@@ -163,25 +201,83 @@ const DEFAULT_PORTS: Record<Framework, number> = {
   unknown: 3000,
 };
 
+/**
+ * The port each tool listens on, keyed by the command that starts it.
+ *
+ * Order matters: `vite preview` serves the built app on 4173 while plain
+ * `vite` runs the dev server on 5173, and reading the second as the first is
+ * how a run dies at E022 having done everything else right. The framework
+ * alone cannot tell them apart — only the command can.
+ */
+const COMMAND_PORTS: Array<[RegExp, number]> = [
+  [/\bvite\s+preview\b/, 4173],
+  [/\bastro\s+preview\b/, 4321],
+  [/\bastro\b/, 4321],
+  [/\bnext\b/, 3000],
+  [/\bnuxt\b/, 3000],
+  [/\bremix-serve\b/, 3000],
+  [/\breact-scripts\s+start\b/, 3000],
+  [/\bng\s+serve\b/, 4200],
+  [/\bwrangler\b/, 8788],
+  [/\bhttp-server\b/, 8080],
+  [/\bvite\b/, 5173],
+  [/\bserve\b/, 3000],
+];
+
+export type PortSource = "flag" | "config" | "command" | "default";
+
+/**
+ * Follow `npm run x` chains to the command that actually runs.
+ *
+ * `"start": "npm run dev"` is common, and reading the wrapper instead of what
+ * it wraps means every heuristic downstream is looking at the wrong string.
+ */
+export function resolveScript(
+  scripts: Record<string, string>,
+  name: string,
+  seen = new Set<string>(),
+): string {
+  const raw = scripts[name];
+  if (!raw || seen.has(name)) return raw ?? "";
+  seen.add(name);
+  const chained = /^\s*(?:npm run|yarn run|yarn|pnpm run|pnpm|bun run)\s+([\w:.-]+)\s*$/.exec(raw);
+  if (chained && scripts[chained[1]!]) return resolveScript(scripts, chained[1]!, seen);
+  return raw;
+}
+
 async function detectPort(
   dir: string,
   scripts: Record<string, string>,
   framework: Framework,
-): Promise<number> {
-  // An explicit --port in the start script beats every heuristic.
-  for (const key of ["start", "preview", "serve", "dev"]) {
-    const s = scripts[key];
-    if (!s) continue;
-    const m = /--port[= ](\d{2,5})/.exec(s) ?? /-p[= ](\d{2,5})/.exec(s);
-    if (m) return Number(m[1]);
+  startScript: string | null,
+): Promise<{ port: number; source: PortSource }> {
+  // An explicit --port wins, but only in the script that will actually run.
+  // Excalidraw has `serve: http-server -p 5001` sitting next to a `start`
+  // that runs Vite on 5173; reading the flag out of the script nobody invokes
+  // is a confidently wrong answer.
+  if (startScript) {
+    const resolved = resolveScript(scripts, startScript);
+    const m = /--port[= ](\d{2,5})/.exec(resolved) ?? /(?:^|\s)-p[= ](\d{2,5})/.exec(resolved);
+    if (m) return { port: Number(m[1]), source: "flag" };
   }
-  for (const cfg of ["vite.config.ts", "vite.config.js"]) {
+
+  for (const cfg of ["vite.config.ts", "vite.config.js", "vite.config.mts"]) {
     const text = await readMaybe(join(dir, cfg));
     if (!text) continue;
-    const m = /preview\s*:\s*\{[^}]*port\s*:\s*(\d{2,5})/s.exec(text) ?? /port\s*:\s*(\d{2,5})/.exec(text);
-    if (m) return Number(m[1]);
+    const m =
+      /preview\s*:\s*\{[^}]*port\s*:\s*(\d{2,5})/s.exec(text) ?? /port\s*:\s*(\d{2,5})/.exec(text);
+    if (m) return { port: Number(m[1]), source: "config" };
   }
-  return DEFAULT_PORTS[framework];
+
+  // What the start command actually invokes.
+  if (startScript) {
+    const resolved = resolveScript(scripts, startScript);
+    for (const [pattern, port] of COMMAND_PORTS) {
+      if (pattern.test(resolved)) return { port, source: "command" };
+    }
+  }
+
+  return { port: DEFAULT_PORTS[framework], source: "default" };
 }
 
 function defaultStart(framework: Framework, port: number): string {
@@ -255,33 +351,95 @@ async function detectEnv(dir: string): Promise<RepoProfile["env"]> {
 
 /* -------------------------------- app root ------------------------------- */
 
-/** Find the app when the repository is a monorepo. */
+const WEB_DEPS = ["next", "vite", "astro", "nuxt", "@sveltejs/kit", "react-scripts", "@remix-run/dev"];
+const UI_DEPS = ["react", "vue", "svelte", "solid-js", "preact", "@angular/core"];
+
+/** A command that puts a site on a port, as opposed to building a library. */
+const SERVES_A_SITE =
+  /\b(vite|next|astro|nuxt|remix|react-scripts\s+start|ng\s+serve|http-server|serve|svelte-kit)\b/;
+
+/**
+ * Find the app when the repository is a monorepo.
+ *
+ * The workspace list is read from where the repository declares it rather
+ * than guessed from directory names. Excalidraw keeps its app in
+ * `excalidraw-app/` at the top level — a perfectly ordinary layout that a
+ * hardcoded `apps/`, `packages/`, `sites/` search cannot see, and missing it
+ * means pointing the whole pipeline at a monorepo root that has no app in it.
+ */
 async function findAppRoot(srcDir: string): Promise<string> {
-  if (await exists(join(srcDir, "package.json"))) {
-    const pkg = await readJson<PackageJson>(join(srcDir, "package.json"));
-    const isContainer = pkg?.workspaces !== undefined || (await exists(join(srcDir, "pnpm-workspace.yaml")));
-    if (!isContainer) return "";
+  const rootPkg = await readJson<PackageJson>(join(srcDir, "package.json"));
+  const globs = await workspaceGlobs(srcDir, rootPkg);
+  if (globs.length === 0) {
+    // Not a workspace root. If it has its own package.json, it is the app.
+    if (rootPkg) return "";
+    for (const guess of ["app", "web", "site", "frontend", "client"]) {
+      if (await exists(join(srcDir, guess, "package.json"))) return guess;
+    }
+    return "";
   }
-  for (const parent of ["apps", "packages", "sites"]) {
-    let entries;
-    try {
-      entries = await readdir(join(srcDir, parent), { withFileTypes: true });
-    } catch {
+
+  const candidates: string[] = [];
+  for (const glob of globs) {
+    if (!glob.includes("*")) {
+      candidates.push(glob);
       continue;
     }
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const candidate = join(parent, e.name);
-      if (await exists(join(srcDir, candidate, "package.json"))) {
-        const pkg = await readJson<PackageJson>(join(srcDir, candidate, "package.json"));
-        const deps = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
-        if ("next" in deps || "vite" in deps || "astro" in deps || "react-scripts" in deps) {
-          return candidate;
-        }
-      }
+    const parent = glob.replace(/\/\*+$/, "");
+    const entries = await readdir(join(srcDir, parent), { withFileTypes: true }).catch(() => []);
+    for (const e of entries) if (e.isDirectory()) candidates.push(join(parent, e.name));
+  }
+
+  const scored: Array<{ dir: string; score: number }> = [];
+  for (const dir of candidates) {
+    const pkg = await readJson<PackageJson>(join(srcDir, dir, "package.json"));
+    if (!pkg) continue;
+
+    const scripts = pkg.scripts ?? {};
+    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+    const starter = ["start", "dev", "serve", "preview"].find((k) => scripts[k]);
+    const command = starter ? resolveScript(scripts, starter) : "";
+
+    // What the package starts is the real signal. Its own dependency list is
+    // not: in a workspace the build tool is hoisted to the root, so the app
+    // package can list react and nothing else — which is exactly how the
+    // previous version of this skipped Excalidraw's actual app and settled on
+    // an example project instead.
+    let score = 0;
+    if (SERVES_A_SITE.test(command)) score += 4;
+    else if (starter) score += 1;
+    if (WEB_DEPS.some((d) => d in deps)) score += 2;
+    if (UI_DEPS.some((d) => d in deps)) score += 1;
+    if (score === 0) continue;
+
+    if (/(^|[/-])(app|web|www|site|client|frontend)([/-]|$)/.test(dir)) score += 2;
+    if (dir.startsWith("packages/")) score -= 1;
+    if (/(^|\/)(examples?|docs?|playground|sandbox|e2e|test)([/-]|$)/.test(dir)) score -= 3;
+    scored.push({ dir, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score || a.dir.length - b.dir.length);
+  return scored[0]?.dir ?? "";
+}
+
+async function workspaceGlobs(srcDir: string, rootPkg: PackageJson | null): Promise<string[]> {
+  const out: string[] = [];
+  const ws = rootPkg?.workspaces;
+  if (Array.isArray(ws)) out.push(...ws.filter((w): w is string => typeof w === "string"));
+  else if (ws && typeof ws === "object" && Array.isArray((ws as { packages?: unknown }).packages)) {
+    out.push(...((ws as { packages: unknown[] }).packages.filter((w) => typeof w === "string") as string[]));
+  }
+
+  // pnpm keeps the same list in its own file. Parsed by line rather than with
+  // a YAML dependency: the shape is a flat list of quoted globs.
+  const yaml = await readMaybe(join(srcDir, "pnpm-workspace.yaml"));
+  if (yaml) {
+    for (const line of yaml.split("\n")) {
+      const m = /^\s*-\s*["']?([^"'#]+?)["']?\s*$/.exec(line);
+      if (m && !m[1]!.startsWith("!")) out.push(m[1]!);
     }
   }
-  return "";
+  return [...new Set(out.filter((g) => !g.startsWith("!")))];
 }
 
 /* -------------------------------- helpers -------------------------------- */

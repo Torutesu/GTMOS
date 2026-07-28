@@ -76,14 +76,60 @@ async function copyTree(from: string, to: string): Promise<void> {
   });
 }
 
-async function fetchTarball(url: string, to: string, ctx: StageContext): Promise<void> {
+/**
+ * Fetch a remote repository.
+ *
+ * `git clone` first, because it is what actually works: it follows the
+ * machine's git configuration, so credentials, proxies and enterprise hosts
+ * are already handled, and it is not limited to GitHub. The archive download
+ * stays as a fallback for a machine with no git, but it is the narrower path —
+ * on this one it is refused outright by the egress proxy.
+ */
+async function fetchRemote(url: string, to: string, ctx: StageContext): Promise<void> {
+  const clone = await ctx.sandbox.exec(
+    `git clone --depth 1 --quiet ${JSON.stringify(url)} ${JSON.stringify(to)}`,
+    { cwd: to, timeoutMs: 300_000 },
+  );
+  if (clone.code === 0) {
+    ctx.log.info("cloned", { url });
+    await rm(join(to, ".git"), { recursive: true, force: true });
+    return;
+  }
+
+  ctx.log.warn("clone failed, trying the archive instead", {
+    detail: tailOf(clone.combined),
+  });
+  await fetchTarball(url, to, ctx, clone.combined);
+}
+
+function tailOf(text: string): string {
+  return text.trim().split("\n").slice(-3).join(" ").slice(0, 300);
+}
+
+async function fetchTarball(
+  url: string,
+  to: string,
+  ctx: StageContext,
+  cloneError = "",
+): Promise<void> {
   const match = /github\.com\/([^/]+)\/([^/#?]+?)(?:\.git)?(?:\/tree\/([^/#?]+))?$/.exec(url);
-  if (!match) throw new SdvError("SDV-E001", `unsupported repository url: ${url}`);
+  if (!match) {
+    throw new SdvError(
+      "SDV-E001",
+      `could not clone ${url}${cloneError ? `: ${tailOf(cloneError)}` : ""}`,
+    );
+  }
   const [, owner, repo, ref = "HEAD"] = match;
   const tarUrl = `https://codeload.github.com/${owner}/${repo}/tar.gz/${ref}`;
 
   const res = await fetch(tarUrl);
-  if (!res.ok) throw new SdvError("SDV-E001", `${tarUrl} returned ${res.status}`);
+  if (!res.ok) {
+    throw new SdvError(
+      "SDV-E001",
+      `neither clone nor archive worked. git said: ${tailOf(cloneError) || "n/a"}. ` +
+        `${tarUrl} returned ${res.status}.`,
+    );
+  }
   const buf = Buffer.from(await res.arrayBuffer());
   if (buf.byteLength > MAX_BYTES) throw new SdvError("SDV-E001", "archive exceeds 2GB");
 
