@@ -65,3 +65,13 @@ describe("the environment handed to repository commands", () => {
     expect(env["PUPPETEER_SKIP_DOWNLOAD"]).toBe("1");
   }, 30_000);
 });
+
+describe("install scripts that assume a git checkout", () => {
+  it("tells git hook installers to stand down", async () => {
+    // ingest drops .git on purpose, so a `prepare: husky install` aborts and
+    // takes the whole install with it. tldraw failed there after resolving
+    // and fetching every dependency successfully.
+    const env = await envOf();
+    expect(env["HUSKY"]).toBe("0");
+  }, 30_000);
+});

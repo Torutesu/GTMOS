@@ -88,6 +88,12 @@ function baseEnv(extra: Record<string, string> = {}): Record<string, string> {
     PUPPETEER_SKIP_DOWNLOAD: "1",
     ADBLOCK: "1",
     DISABLE_OPENCOLLECTIVE: "1",
+    // Git hook installers run from `prepare` and abort when there is no
+    // repository — and ingest deliberately drops .git, so there never is.
+    // tldraw's install failed here after resolving and fetching everything
+    // successfully. This is husky's own documented way to stand down; it is
+    // not disabling install scripts generally, which some apps genuinely need.
+    HUSKY: "0",
     npm_config_fund: "false",
     npm_config_audit: "false",
     npm_config_update_notifier: "false",
