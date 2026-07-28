@@ -6,7 +6,7 @@ export * from "./digest.ts";
 export { detect } from "./stages/detect.ts";
 export { ingest } from "./stages/ingest.ts";
 export { build, placeholderFor, relaxInstall } from "./stages/build.ts";
-export { seed, nonBackgroundRatio } from "./stages/seed.ts";
+export { seed, nonBackgroundRatio, isWorthFilming, type FirstScreen } from "./stages/seed.ts";
 export { capture } from "./stages/capture.ts";
 export { retargetSession } from "./session.ts";
 export { understand } from "./stages/understand.ts";

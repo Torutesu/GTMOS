@@ -69,35 +69,53 @@ export async function seed(
   // between the recording and this run, rewrite it so it still applies.
   if (storageState) storageState = retargetSession(storageState, baseUrl);
 
-  const contentRatio = await measureFirstScreen(ctx, baseUrl, entryRoute, storageState);
-  if (contentRatio < EMPTY_SCREEN_THRESHOLD) {
+  const screen = await measureFirstScreen(ctx, baseUrl, entryRoute, storageState);
+  if (!isWorthFilming(screen)) {
     throw new SdvError(
       "SDV-E040",
-      `the first screen is ${(contentRatio * 100).toFixed(1)}% content — a demo of an empty app is worse than no demo`,
+      `the first screen is ${(screen.contentRatio * 100).toFixed(1)}% content with ` +
+        `${screen.elements} laid-out elements and ${screen.characters} characters of text — ` +
+        `a demo of an empty app is worse than no demo`,
     );
+  }
+  if (screen.contentRatio < EMPTY_SCREEN_THRESHOLD) {
+    ctx.log.info("first screen is sparse but real", { ...screen });
   }
 
   await writeFile(
     join(paths.logs, "seed.json"),
-    JSON.stringify({ strategy, contentRatio, entryRoute }, null, 2),
+    JSON.stringify({ strategy, entryRoute, ...screen }, null, 2),
   );
 
-  return { strategy, storageState, contentRatio };
+  return { strategy, storageState, contentRatio: screen.contentRatio };
+}
+
+export interface FirstScreen {
+  contentRatio: number;
+  /** Rendered elements of a meaningful size, and how much text they carry. */
+  elements: number;
+  characters: number;
 }
 
 /**
  * Look at the first screen and decide whether there is anything to film.
  *
- * Cheap proxy: how much of the viewport differs from the most common colour.
- * A skeleton, a spinner or an unauthenticated redirect all collapse toward a
- * single flat colour, and that is exactly the demo we refuse to ship.
+ * Two measurements, because either one alone is wrong.
+ *
+ * Ink coverage catches a spinner, a skeleton or a redirect to a login page —
+ * they all collapse toward one flat colour. But it also condemns a page that
+ * is sparse on purpose: reveal.js opens on a black slide carrying the words
+ * "Slide 1", which is half a percent of the viewport and a perfectly good
+ * first frame. So the structure of the page gets a vote. A rendered app has
+ * laid-out elements and text in them; a failed one has neither, whatever its
+ * background colour.
  */
 async function measureFirstScreen(
   ctx: StageContext,
   baseUrl: string,
   entryRoute: string,
   storageState: unknown | null,
-): Promise<number> {
+): Promise<FirstScreen> {
   const browser = await launchBrowser(ctx.cfg.chromiumPath);
   try {
     const context = await newContext(browser, {
@@ -108,12 +126,47 @@ async function measureFirstScreen(
     const page = await context.newPage();
     await page.goto(entryRoute, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await settle(page, 400);
+
+    const structure = await page.evaluate(() => {
+      let elements = 0;
+      let characters = 0;
+      for (const el of Array.from(document.body?.querySelectorAll("*") ?? [])) {
+        const box = el.getBoundingClientRect();
+        if (box.width < 8 || box.height < 8) continue;
+        if (box.top > window.innerHeight || box.left > window.innerWidth) continue;
+        const style = getComputedStyle(el);
+        if (style.visibility === "hidden" || style.display === "none" || style.opacity === "0") {
+          continue;
+        }
+        elements++;
+        for (const node of Array.from(el.childNodes)) {
+          if (node.nodeType === 3) characters += (node.textContent ?? "").trim().length;
+        }
+      }
+      return { elements, characters };
+    });
+
     const png = await page.screenshot({ type: "png" });
     await context.close();
-    return await nonBackgroundRatio(png);
+    return { contentRatio: await nonBackgroundRatio(png), ...structure };
   } finally {
     await browser.close();
   }
+}
+
+/**
+ * Whether the first screen is worth filming.
+ *
+ * Ink alone is not enough evidence to refuse. A page only fails when it is
+ * both visually empty and structurally empty — nothing laid out and nothing
+ * to read.
+ */
+export function isWorthFilming(
+  screen: FirstScreen,
+  inkThreshold = EMPTY_SCREEN_THRESHOLD,
+): boolean {
+  if (screen.contentRatio >= inkThreshold) return true;
+  return screen.elements >= 5 && screen.characters >= 12;
 }
 
 export async function nonBackgroundRatio(png: Buffer): Promise<number> {
