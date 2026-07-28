@@ -51,7 +51,11 @@ export async function build(ctx: StageContext, profile: RepoProfile): Promise<Bu
     ctx.progress({ stage: "build", status: "running", message: "Installing dependencies" });
     const install = await ctx.sandbox.exec(profile.build.install, {
       cwd: appDir,
-      env,
+      // The sandbox defaults to NODE_ENV=production, which is right for the
+      // build and the server but silently drops devDependencies during the
+      // install — and the build tool itself usually lives there. Installing in
+      // development mode is what CI does by simply not setting NODE_ENV.
+      env: { ...env, NODE_ENV: "development" },
       timeoutMs: INSTALL_TIMEOUT_MS,
     });
     await writeFile(join(paths.logs, "install.log"), install.combined);
@@ -129,7 +133,10 @@ async function depsCacheKey(appDir: string, srcRoot: string): Promise<string | n
       const p = join(base, name);
       try {
         const content = await readFile(p);
-        return `${name.replace(/\W/g, "")}-${shortSha(content)}`;
+        // The prefix is a cache generation. Bump it whenever the way we run
+        // the install changes, so a tree produced by the old rules is never
+        // restored under the new ones.
+        return `v2-${name.replace(/\W/g, "")}-${shortSha(content)}`;
       } catch {
         /* keep looking */
       }

@@ -12,18 +12,23 @@ import { loadConfig } from "@sdv/core";
 
 const exec = promisify(execFile);
 
-interface Check {
+export interface Check {
   name: string;
   ok: boolean;
   detail: string;
   fatal: boolean;
 }
 
-const checks: Check[] = [];
-const add = (name: string, ok: boolean, detail: string, fatal = true) =>
-  checks.push({ name, ok, detail, fatal });
-
-async function main() {
+/**
+ * Check the machine, return the findings.
+ *
+ * This returns rather than prints so the CLI and the acceptance script can
+ * both assert on the same list instead of parsing console output.
+ */
+export async function runDoctor(): Promise<Check[]> {
+  const checks: Check[] = [];
+  const add = (name: string, ok: boolean, detail: string, fatal = true) =>
+    checks.push({ name, ok, detail, fatal });
   const cfg = loadConfig();
 
   // Node
@@ -101,6 +106,11 @@ async function main() {
     add("llm mode", true, "mock (no key or network needed)", false);
   }
 
+  return checks;
+}
+
+/** Print the findings and return whether anything required failed. */
+export function reportDoctor(checks: Check[]): boolean {
   const width = Math.max(...checks.map((c) => c.name.length));
   for (const c of checks) {
     const mark = c.ok ? "ok  " : c.fatal ? "FAIL" : "warn";
@@ -110,9 +120,10 @@ async function main() {
   const failed = checks.filter((c) => !c.ok && c.fatal);
   if (failed.length > 0) {
     console.error(`\n${failed.length} required check(s) failed.`);
-    process.exit(1);
+    return false;
   }
   console.log("\nAll required checks passed.");
+  return true;
 }
 
 /** Locate a Chromium binary without ever triggering a download. */
@@ -161,8 +172,10 @@ export async function findChromium(explicit: string | null): Promise<string | nu
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
-    console.error(e);
-    process.exit(1);
-  });
+  runDoctor()
+    .then((checks) => process.exit(reportDoctor(checks) ? 0 : 1))
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
 }

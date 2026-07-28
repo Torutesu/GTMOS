@@ -36,6 +36,17 @@ export interface Format {
   width: number;
   height: number;
   frame: "browser" | "focus";
+  /**
+   * Where the caption sits, as a fraction of height from the bottom.
+   *
+   * Feeds overlay their own chrome on a vertical video — the reply bar, the
+   * handle, the progress line — and a caption pinned near the bottom edge is
+   * simply covered. Tall formats push the text up into the middle band where
+   * nothing else is drawn. Falls back to the theme when unset.
+   */
+  safeBottomRatio?: number;
+  /** Caption size override, as a fraction of height. Tall frames need larger text. */
+  captionSizeRatio?: number;
 }
 
 export interface RenderContext {
@@ -57,6 +68,7 @@ export interface RenderContext {
  */
 export class FrameRenderer {
   private plates = new Map<string, Buffer>();
+  private cursorCache: { svg: string; width: number; height: number } | null = null;
 
   constructor(private ctx: RenderContext) {}
 
@@ -72,14 +84,15 @@ export class FrameRenderer {
     const cursor = cursorAt(seg, progress);
     if (cursor) {
       const scaled = this.toOutput(cursor, seg);
+      // Both overlays are drawn at their own small size and positioned, not
+      // painted onto a full-frame canvas. Rasterising a 1920×1080 SVG once per
+      // frame costs more than everything else in the loop put together.
       if (seg.kind === "ripple") {
-        overlays.push({
-          input: Buffer.from(this.rippleSvg(scaled, progress)),
-          top: 0,
-          left: 0,
-        });
+        const sprite = this.rippleSprite(progress);
+        overlays.push(place(sprite.svg, scaled.x - sprite.size / 2, scaled.y - sprite.size / 2, sprite.size, sprite.size, this.ctx.format));
       }
-      overlays.push({ input: Buffer.from(this.cursorSvg(scaled)), top: 0, left: 0 });
+      const cur = this.cursorSprite();
+      overlays.push(place(cur.svg, scaled.x, scaled.y, cur.width, cur.height, this.ctx.format));
     }
 
     if (overlays.length === 0) return plate;
@@ -263,35 +276,44 @@ export class FrameRenderer {
     return { x: width / 2 + rel.x, y: height / 2 + rel.y };
   }
 
-  private cursorSvg(p: Point): string {
-    const { width, height } = this.ctx.format;
+  /** The pointer, drawn once at its own size. Identical every frame. */
+  private cursorSprite(): { svg: string; width: number; height: number } {
+    if (this.cursorCache) return this.cursorCache;
     const c = this.ctx.theme.cursor;
     const s = c.size;
-    return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})">
-        <path d="M0 0 L0 ${s} L${s * 0.28} ${s * 0.74} L${s * 0.46} ${s * 1.06} L${s * 0.62} ${s * 0.98} L${s * 0.44} ${s * 0.68} L${s * 0.76} ${s * 0.66} Z"
+    const w = Math.ceil(s * 0.8) + 4;
+    const h = Math.ceil(s * 1.1) + 4;
+    this.cursorCache = {
+      width: w,
+      height: h,
+      svg: `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+        <path d="M2 2 L2 ${s + 2} L${s * 0.28 + 2} ${s * 0.74 + 2} L${s * 0.46 + 2} ${s * 1.06 + 2} L${s * 0.62 + 2} ${s * 0.98 + 2} L${s * 0.44 + 2} ${s * 0.68 + 2} L${s * 0.76 + 2} ${s * 0.66 + 2} Z"
               fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5" stroke-linejoin="round"/>
-      </g>
-    </svg>`;
+      </svg>`,
+    };
+    return this.cursorCache;
   }
 
-  private rippleSvg(p: Point, progress: number): string {
-    const { width, height } = this.ctx.format;
+  private rippleSprite(progress: number): { svg: string; size: number } {
     const r = this.ctx.theme.cursor.ripple;
     const radius = 6 + easeInOut(progress) * r.maxRadius;
     const opacity = (1 - progress) * 0.55;
-    return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${radius.toFixed(1)}"
-              fill="none" stroke="${r.color}" stroke-width="3" opacity="${opacity.toFixed(3)}"/>
-    </svg>`;
+    const size = Math.ceil((radius + 3) * 2);
+    return {
+      size,
+      svg: `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="${size / 2}" cy="${size / 2}" r="${radius.toFixed(1)}"
+                fill="none" stroke="${r.color}" stroke-width="3" opacity="${opacity.toFixed(3)}"/>
+      </svg>`,
+    };
   }
 
   private captionSvg(text: string): string {
     const { width, height } = this.ctx.format;
     const c = this.ctx.theme.caption;
-    const size = Math.round(height * c.sizeRatio);
+    const size = Math.round(height * (this.ctx.format.captionSizeRatio ?? c.sizeRatio));
     const pad = Math.round(height * c.paddingRatio);
-    const bottom = Math.round(height * c.bottomRatio);
+    const bottom = Math.round(height * (this.ctx.format.safeBottomRatio ?? c.bottomRatio));
     const charW = size * 0.55;
     const boxW = Math.min(width - pad * 4, Math.round(text.length * charW + pad * 3));
     const boxH = size + pad * 2;
@@ -311,11 +333,35 @@ export class FrameRenderer {
     const { width, height } = this.ctx.format;
     const w = this.ctx.theme.watermark;
     const size = Math.round(height * w.sizeRatio);
+    // Sit above the caption's safe area so the mark is never the thing a
+    // platform's own chrome covers, and never covers the caption itself.
+    const bottom = Math.round(height * (this.ctx.format.safeBottomRatio ?? 0)) + size;
     return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <text x="${width - size}" y="${height - size}" fill="${w.color}"
+      <text x="${width - size}" y="${height - bottom}" fill="${w.color}"
             font-family="sans-serif" font-size="${size}" text-anchor="end">${escapeXml(w.text)}</text>
     </svg>`;
   }
+}
+
+/**
+ * Position a small sprite on the frame.
+ *
+ * sharp refuses a composite that would fall outside the base image, so the
+ * position is clamped rather than clipped. At the edge of the frame the
+ * pointer sits a few pixels in from where it strictly belongs — which nobody
+ * can see, and which is better than an exception mid-render.
+ */
+function place(
+  svg: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  format: { width: number; height: number },
+): Overlay {
+  const left = Math.max(0, Math.min(Math.round(x), format.width - w));
+  const top = Math.max(0, Math.min(Math.round(y), format.height - h));
+  return { input: Buffer.from(svg), left, top };
 }
 
 export function segmentAt(timeline: Timeline, tMs: number): Segment {

@@ -6,6 +6,8 @@ export interface Skeleton {
   version: string;
   targetDurationMs: number;
   maxDurationMs: number;
+  minDurationMs: number;
+  hookMs?: number;
   fps: number;
   intro: { durationMs: number };
   step: {
@@ -13,10 +15,18 @@ export interface Skeleton {
     clickRippleMs: number;
     holdMs: number;
     minHoldMs: number;
+    maxHoldMs: number;
     transitionMs: number;
   };
   outro: { durationMs: number };
-  formats: Array<{ name: string; width: number; height: number; frame: "browser" | "focus" }>;
+  formats: Array<{
+    name: string;
+    width: number;
+    height: number;
+    frame: "browser" | "focus";
+    safeBottomRatio?: number;
+    captionSizeRatio?: number;
+  }>;
 }
 
 export type SegmentKind = "intro" | "cursor" | "ripple" | "hold" | "transition" | "outro";
@@ -165,6 +175,8 @@ export function buildTimeline(manifest: CaptureManifest, skeleton: Skeleton): Ti
   let compressed = false;
   if (t > skeleton.targetDurationMs) {
     compressed = compressHolds(segments, skeleton);
+  } else if (t < skeleton.minDurationMs) {
+    expandHolds(segments, skeleton);
   }
 
   return { fps: skeleton.fps, durationMs: total(segments), segments, compressed };
@@ -190,6 +202,28 @@ function compressHolds(segments: Segment[], skeleton: Skeleton): boolean {
 
   retime(segments);
   return true;
+}
+
+/**
+ * Let a short flow breathe.
+ *
+ * A four-step demo comes out at fourteen seconds, and every caption in it
+ * flashes past in under a second and a half. The captions are the only
+ * narration a muted video has, so a viewer who cannot finish reading one has
+ * effectively watched a silent film. Holds stretch — up to a ceiling, because
+ * a screen that sits still too long reads as a stall, not as emphasis.
+ */
+function expandHolds(segments: Segment[], skeleton: Skeleton): void {
+  const holds = segments.filter((s) => s.kind === "hold");
+  if (holds.length === 0) return;
+
+  const fixed = segments.filter((s) => s.kind !== "hold").reduce((a, s) => a + s.durationMs, 0);
+  const perHold = (skeleton.minDurationMs - fixed) / holds.length;
+  const target = clamp(perHold, skeleton.step.holdMs, skeleton.step.maxHoldMs);
+  if (target <= skeleton.step.holdMs) return;
+
+  for (const h of holds) h.durationMs = Math.round(target);
+  retime(segments);
 }
 
 function retime(segments: Segment[]): void {

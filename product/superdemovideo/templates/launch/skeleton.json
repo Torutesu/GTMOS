@@ -6,11 +6,14 @@
   "description": "Problem, product working, call to action. Sixty seconds, silent, built for a feed.",
   "targetDurationMs": 60000,
   "maxDurationMs": 70000,
+  "minDurationMs": 22000,
+  "durationComment": "60s is the target and 70s the ceiling: past about 90 seconds each further 10 costs roughly a tenth of the completions, so the cut stays comfortably inside that. The floor exists for the opposite reason — a four-step flow lands near 14s, which gives each caption barely a second, and the captions are the only narration a muted video has.",
+  "hookMs": 1700,
   "fps": 30,
 
   "intro": {
     "durationMs": 1600,
-    "comment": "Runs over the first live screen, never a title card. The opening frames must show the product working — a viewer who sees a logo decides in under three seconds that this is an advert."
+    "comment": "Runs over the first live screen, never a title card. The stay-or-scroll decision is made in roughly the first 1.7 seconds, so the intro has to end inside that window with the product already on screen — a viewer who sees a logo instead decides this is an advert and leaves."
   },
 
   "step": {
@@ -18,6 +21,7 @@
     "clickRippleMs": 300,
     "holdMs": 1400,
     "minHoldMs": 800,
+    "maxHoldMs": 3400,
     "transitionMs": 400
   },
 
@@ -25,8 +29,24 @@
     "durationMs": 2000
   },
 
+  "formatsComment": "Three masters from one capture. Landscape is the hero for a landing page and a desktop timeline; vertical is what a phone feed actually gives full attention to; square holds its size in a mobile timeline without the vertical crop. safeBottomRatio keeps the caption out of the band a platform draws its own chrome over.",
   "formats": [
     { "name": "video_169", "width": 1920, "height": 1080, "frame": "browser" },
-    { "name": "video_916", "width": 1080, "height": 1920, "frame": "focus" }
+    {
+      "name": "video_916",
+      "width": 1080,
+      "height": 1920,
+      "frame": "focus",
+      "safeBottomRatio": 0.24,
+      "captionSizeRatio": 0.026
+    },
+    {
+      "name": "video_11",
+      "width": 1080,
+      "height": 1080,
+      "frame": "focus",
+      "safeBottomRatio": 0.12,
+      "captionSizeRatio": 0.038
+    }
   ]
 }

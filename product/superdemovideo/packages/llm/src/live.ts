@@ -152,14 +152,21 @@ export function createLiveLlm(opts: LiveOptions): LlmClient {
   };
 }
 
-type ApiUsage = {
+export type ApiUsage = {
   input_tokens: number;
   output_tokens: number;
   cache_creation_input_tokens?: number | null;
   cache_read_input_tokens?: number | null;
 };
 
-function record(sink: LlmUsage[], purpose: string, u: ApiUsage): void {
+/**
+ * Turn one API response's token counts into a costed line.
+ *
+ * Cached input is charged at a tenth of fresh input, which is the entire
+ * reason the digest is sent as one cached block — so this arithmetic is what
+ * proves the caching is actually paying for itself, not a guess about it.
+ */
+export function priceUsage(purpose: string, u: ApiUsage): LlmUsage {
   const input = u.input_tokens ?? 0;
   const output = u.output_tokens ?? 0;
   const cacheWrite = u.cache_creation_input_tokens ?? 0;
@@ -171,7 +178,7 @@ function record(sink: LlmUsage[], purpose: string, u: ApiUsage): void {
       cacheRead * PRICE.cacheRead) /
     1_000_000;
 
-  sink.push({
+  return {
     model: MODEL,
     purpose,
     inputTokens: input,
@@ -179,5 +186,9 @@ function record(sink: LlmUsage[], purpose: string, u: ApiUsage): void {
     cacheCreationTokens: cacheWrite,
     cacheReadTokens: cacheRead,
     usd: Number(usd.toFixed(6)),
-  });
+  };
+}
+
+function record(sink: LlmUsage[], purpose: string, u: ApiUsage): void {
+  sink.push(priceUsage(purpose, u));
 }

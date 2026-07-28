@@ -242,11 +242,17 @@ class Player {
   private documentFor(snap: DomSnapshot): string {
     const assets = this.manifest.assets ?? {};
     let html = snap.html;
-    // Rewrite recorded URLs to the copies that travel with the bundle.
-    for (const [original, local] of Object.entries(assets)) {
+    // Rewrite recorded URLs to the copies that travel with the bundle. Longest
+    // first: a root-relative alias is a substring of its absolute form, and
+    // replacing the short one first would leave the long one unmatched.
+    const entries = Object.entries(assets).sort((a, b) => b[0].length - a[0].length);
+    for (const [original, local] of entries) {
       html = html.split(original).join(`${this.baseUrl}/${local}`);
     }
-    const styles = snap.styles.join("\n");
+    let styles = snap.styles.join("\n");
+    for (const [original, local] of entries) {
+      styles = styles.split(original).join(`${this.baseUrl}/${local}`);
+    }
     return `<!doctype html><html><head><meta charset="utf-8">
 <base target="_blank">
 <style>${styles}</style>

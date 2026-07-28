@@ -12,7 +12,7 @@ export { retargetSession } from "./session.ts";
 export { understand } from "./stages/understand.ts";
 export { flowgen } from "./stages/flowgen.ts";
 export { compose } from "./stages/compose.ts";
-export { emit } from "./stages/emit.ts";
+export { emit, withPathAliases } from "./stages/emit.ts";
 export { publish, badgeSvg } from "./stages/publish.ts";
 export { diff } from "./stages/diff.ts";
 export * from "./compose/timeline.ts";

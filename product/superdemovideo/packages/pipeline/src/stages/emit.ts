@@ -58,9 +58,10 @@ export async function emit(ctx: StageContext, opts: EmitOptions): Promise<EmitRe
   let assets: Record<string, string> = {};
   if (opts.manifest.assetsManifest) {
     try {
-      assets = JSON.parse(
+      const recorded: Record<string, string> = JSON.parse(
         await readFile(join(opts.bundleDir, opts.manifest.assetsManifest), "utf8"),
       );
+      assets = withPathAliases(recorded);
       await cp(join(opts.bundleDir, "assets"), join(out, "assets"), { recursive: true });
     } catch {
       ctx.log.warn("no page assets travelled with the capture");
@@ -94,6 +95,30 @@ export async function emit(ctx: StageContext, opts: EmitOptions): Promise<EmitRe
     files: ["demo.json", "player.js", "index.html"],
     stepCount: demoSteps.length,
   };
+}
+
+/**
+ * Key each captured asset by every form the page might refer to it as.
+ *
+ * The network records absolute URLs; the markup almost always contains the
+ * root-relative path instead. Rewriting only the absolute form leaves the
+ * replay pointing at `/assets/…` on whatever host the demo is served from —
+ * which in a sandboxed iframe is an opaque origin, so the stylesheet is
+ * blocked and the demo renders as unstyled HTML. The bug is invisible in the
+ * manifest and glaring on the screen.
+ */
+export function withPathAliases(recorded: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = { ...recorded };
+  for (const [url, local] of Object.entries(recorded)) {
+    try {
+      const parsed = new URL(url);
+      out[`${parsed.pathname}${parsed.search}`] = local;
+      out[`//${parsed.host}${parsed.pathname}${parsed.search}`] = local;
+    } catch {
+      /* not an absolute URL — the recorded key is already the only form */
+    }
+  }
+  return out;
 }
 
 function standalonePage(title: string): string {

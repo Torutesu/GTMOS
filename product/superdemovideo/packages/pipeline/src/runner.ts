@@ -269,6 +269,40 @@ export async function produce(ctx: StageContext, opts: ProduceOptions): Promise<
   };
 }
 
+/* --------------------------- phase: regeneration ------------------------- */
+
+/**
+ * Re-film an existing demo against today's code.
+ *
+ * The source is fetched again and the app rebuilt, but the flow is not
+ * reconsidered: regeneration answers "does the demo we already agreed on still
+ * hold?", and re-deciding the story would make the diff meaningless.
+ */
+export async function regenerate(
+  ctx: StageContext,
+  opts: { watermark?: boolean } = {},
+): Promise<ProduceResult> {
+  await ensureWorkDirs(ctx.workDir);
+  await setRunStatus(ctx.db, ctx.runId, "running");
+
+  const { gitSha } = await timed(ctx, "ingest", () => ingest(ctx));
+  await setRunStatus(ctx.db, ctx.runId, "running", { gitSha });
+
+  const project = await getProject(ctx.db, ctx.projectId);
+  const paths = stagePaths(ctx.workDir);
+
+  // Refresh the profile: a repo that switched package manager between runs
+  // would otherwise fail the build with a stale answer.
+  const profile = await timed(ctx, "detect", async () => {
+    const detected = await detect(paths.src, project?.app_root ?? "");
+    const stored = project?.repo_profile;
+    return stored ? { ...detected, ...stored } : detected;
+  });
+  await setRepoProfile(ctx.db, ctx.projectId, profile);
+
+  return produce(ctx, { reuseFlow: true, watermark: opts.watermark });
+}
+
 /* -------------------------------- helpers -------------------------------- */
 
 async function loadDigest(ctx: StageContext): Promise<RepoDigest> {

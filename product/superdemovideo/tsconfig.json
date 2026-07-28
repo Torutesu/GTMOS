@@ -19,7 +19,8 @@
       "@sdv/core": ["./packages/core/src/index.ts"],
       "@sdv/db": ["./packages/db/src/index.ts"],
       "@sdv/llm": ["./packages/llm/src/index.ts"],
-      "@sdv/pipeline": ["./packages/pipeline/src/index.ts"]
+      "@sdv/pipeline": ["./packages/pipeline/src/index.ts"],
+      "@sdv/api": ["./packages/api/src/index.ts"]
     }
   },
   "include": ["packages/*/src/**/*", "packages/*/*.ts", "scripts/**/*"],

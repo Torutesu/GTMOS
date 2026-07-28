@@ -5,7 +5,7 @@ import type { LlmClient } from "./types.ts";
 
 export * from "./types.ts";
 export { createMockLlm } from "./mock.ts";
-export { createLiveLlm } from "./live.ts";
+export { createLiveLlm, priceUsage } from "./live.ts";
 export { renderDigest } from "./digest-text.ts";
 
 export function createLlm(cfg: SdvConfig, templatesDir: string): LlmClient {

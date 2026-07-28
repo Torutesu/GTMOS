@@ -106,3 +106,18 @@ export function toSdvError(err: unknown, fallback: ErrorCode = "SDV-E900"): SdvE
 export function errorSpec(code: ErrorCode): ErrorSpec {
   return SPECS[code];
 }
+
+/**
+ * Codes worth trying again.
+ *
+ * A build that failed on a syntax error will fail identically on the second
+ * attempt, and burning three attempts on it only delays the message the user
+ * needs. Retries are reserved for failures that are plausibly about timing or
+ * machine state — a port that was slow to open, a render that ran out of
+ * memory — not about the repository being what it is.
+ */
+const RETRYABLE = new Set<ErrorCode>(["SDV-E001", "SDV-E022", "SDV-E060", "SDV-E900"]);
+
+export function isRetryable(code: ErrorCode): boolean {
+  return RETRYABLE.has(code);
+}

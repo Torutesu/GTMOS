@@ -54,9 +54,19 @@ export async function complete(db: Db, jobId: string): Promise<void> {
   await db.query(`UPDATE jobs SET status = 'done', locked_at = NULL WHERE id = $1`, [jobId]);
 }
 
-/** Fail a job; retry with backoff until MAX_ATTEMPTS, then park it as dead. */
-export async function fail(db: Db, job: Job, error: string): Promise<"retry" | "dead"> {
-  if (job.attempts >= MAX_ATTEMPTS) {
+/**
+ * Fail a job; retry with backoff until MAX_ATTEMPTS, then park it as dead.
+ *
+ * `retryable: false` parks it at once — some failures are a property of the
+ * input and repeating them only delays the answer.
+ */
+export async function fail(
+  db: Db,
+  job: Job,
+  error: string,
+  opts: { retryable?: boolean } = {},
+): Promise<"retry" | "dead"> {
+  if (opts.retryable === false || job.attempts >= MAX_ATTEMPTS) {
     await db.query(
       `UPDATE jobs SET status = 'dead', locked_at = NULL, last_error = $2 WHERE id = $1`,
       [job.id, error.slice(0, 4000)],

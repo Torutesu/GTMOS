@@ -1,0 +1,11 @@
+{
+  "name": "@sdv/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/main.ts",
+  "bin": { "sdv": "./src/main.ts" },
+  "dependencies": {
+    "@sdv/core": "workspace:*"
+  }
+}

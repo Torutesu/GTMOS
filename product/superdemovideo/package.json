@@ -19,9 +19,12 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@types/ffprobe-static": "^2.0.3",
     "@types/node": "^22.10.2",
     "@types/pngjs": "^6.0.5",
     "esbuild": "^0.28.1",
+    "ffprobe-static": "^3.1.0",
+    "playwright-core": "1.56.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^4.1.10"
