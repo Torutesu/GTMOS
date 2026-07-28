@@ -6,6 +6,7 @@ import type { RepoDigest } from "@sdv/llm";
 
 function profile(e2e: RepoProfile["e2e"]): RepoProfile {
   return {
+    platform: "web",
     framework: "vite",
     packageManager: "npm",
     nodeVersion: "22",
@@ -117,30 +118,30 @@ describe("where candidates come from", () => {
   });
 });
 
-describe("a desktop application", () => {
-  const electron = (e2e: RepoProfile["e2e"]): RepoProfile => ({
+describe("platforms we cannot get HTML for yet", () => {
+  const on = (platform: RepoProfile["platform"], e2e: RepoProfile["e2e"] = null): RepoProfile => ({
     ...profile(e2e),
-    framework: "electron",
+    platform,
   });
 
-  it("is refused for being a desktop app, not for missing tests", async () => {
-    // KashinAI is Electron. Reporting the missing test suite would send
-    // someone off to write specs for something that still could not be
-    // filmed: an Electron window is not at a URL, and its interface stops
-    // working outside Electron because it reaches for preload APIs.
-    try {
-      requireE2e(electron(null));
-      throw new Error("should have refused");
-    } catch (e) {
-      expect((e as SdvError).code).toBe("SDV-E012");
+  it("refuses a native app for being native, not for missing tests", () => {
+    // Someone told to add Playwright specs would write them and still have
+    // nothing filmable: there is no HTML to point a browser at.
+    for (const platform of ["macos", "ios", "android"] as const) {
+      try {
+        requireE2e(on(platform));
+        throw new Error(`should have refused ${platform}`);
+      } catch (e) {
+        expect((e as SdvError).code, platform).toBe("SDV-E012");
+      }
     }
   });
 
-  it("is refused even when it does have a test suite", async () => {
-    // The tests are not the problem. Being a desktop app is.
+  it("refuses a native app even when it does have a test suite", () => {
+    // The tests are not the problem. Having no HTML is.
     try {
       requireE2e(
-        electron({
+        on("ios", {
           kind: "playwright",
           configPath: "playwright.config.ts",
           testDir: "e2e",
@@ -151,6 +152,17 @@ describe("a desktop application", () => {
       throw new Error("should have refused");
     } catch (e) {
       expect((e as SdvError).code).toBe("SDV-E012");
+    }
+  });
+
+  it("lets an Electron app through, because its renderer is already HTML", () => {
+    // It still needs specs like anything else — but for that reason, not for
+    // being a desktop app.
+    try {
+      requireE2e(on("electron"));
+      throw new Error("should have refused");
+    } catch (e) {
+      expect((e as SdvError).code).toBe("SDV-E011");
     }
   });
 });

@@ -15,7 +15,12 @@ async function skeleton(): Promise<Skeleton> {
 function manifest(stepCount: number): CaptureManifest {
   return {
     schemaVersion: 1,
+    runId: "run_1",
+    flowId: "flw_1",
     useCaseId: "uc_1",
+    fidelity: "L2",
+    baseUrl: "http://127.0.0.1:3100",
+    createdAt: new Date(0).toISOString(),
     title: { en: "Invite a team member", ja: "メンバーを招待する" },
     viewport: { name: "desktop", width: 1440, height: 900, dpr: 1 },
     capturedAt: new Date(0).toISOString(),

@@ -4,6 +4,14 @@ import { SdvError, shortSha, tailLines, waitFor, type RepoProfile } from "@sdv/c
 import type { StageContext } from "../context.ts";
 import { stagePaths } from "../context.ts";
 import { assertOk, type StartedProcess } from "../sandbox.ts";
+import {
+  bridgeScript,
+  findPreload,
+  findRendererOutput,
+  injectBridge,
+  readBridgeSurface,
+  type BridgeSurface,
+} from "./bridge.ts";
 
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
 const BUILD_TIMEOUT_MS = 10 * 60_000;
@@ -124,7 +132,16 @@ export async function build(ctx: StageContext, profile: RepoProfile): Promise<Bu
   const baseUrl = `http://127.0.0.1:${profile.build.port}`;
   ctx.progress({ stage: "build", status: "running", message: `Starting the app on :${profile.build.port}` });
 
-  const proc = ctx.sandbox.start(profile.build.start, {
+  // An Electron app is filmed as what it already is — a web page — rather
+  // than through a desktop window. Its renderer is served like any static
+  // build, with a stand-in for the bridge the preload script would have
+  // provided. See stages/bridge.ts for why that is the whole difference.
+  const startCommand =
+    profile.platform === "electron"
+      ? await prepareElectronRenderer(ctx, appDir, profile.build.port)
+      : profile.build.start;
+
+  const proc = ctx.sandbox.start(startCommand, {
     cwd: appDir,
     env: { ...env, PORT: String(profile.build.port) },
   });
@@ -154,6 +171,56 @@ export async function build(ctx: StageContext, profile: RepoProfile): Promise<Bu
       await proc.stop();
     },
   };
+}
+
+/**
+ * Make an Electron renderer openable in an ordinary browser.
+ *
+ * Everything the demo needs is already there — the renderer is a web page,
+ * built by Vite, sitting in `out/renderer`. The one thing missing is the
+ * bridge: `contextBridge.exposeInMainWorld` normally hands the page an object
+ * of functions backed by the main process, and without it the app throws on
+ * its first line. So the preload source is read for what it promised to
+ * expose, a stand-in is written from that, and it goes into the page ahead of
+ * the app's own scripts.
+ *
+ * Returns the command that serves the result.
+ */
+async function prepareElectronRenderer(
+  ctx: StageContext,
+  appDir: string,
+  port: number,
+): Promise<string> {
+  const rendererDir = await findRendererOutput(appDir);
+  if (!rendererDir) {
+    throw new SdvError(
+      "SDV-E021",
+      "the build produced no renderer — looked for index.html under out/, dist/ and .vite/",
+    );
+  }
+
+  const preloadPath = await findPreload(appDir);
+  let surfaces: BridgeSurface[] = [];
+  if (preloadPath) {
+    surfaces = readBridgeSurface(await readFile(preloadPath, "utf8"));
+    ctx.log.info("read the preload bridge", {
+      preload: preloadPath.replace(appDir, "."),
+      exposed: surfaces.map((s) => `${s.namespace}(${s.methods.length})`).join(" "),
+    });
+  } else {
+    ctx.log.warn("no preload source found; the renderer may still need one");
+  }
+
+  const indexPath = join(rendererDir, "index.html");
+  const html = await readFile(indexPath, "utf8");
+  await writeFile(indexPath, injectBridge(html, bridgeScript(surfaces)));
+
+  ctx.progress({
+    stage: "build",
+    status: "running",
+    message: `Serving the Electron renderer with a stand-in for ${surfaces.length} bridge(s)`,
+  });
+  return `npx --yes serve -s -l ${port} ${JSON.stringify(rendererDir)}`;
 }
 
 /**

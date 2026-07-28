@@ -6,6 +6,7 @@ import {
   Flow,
   SdvError,
   toSdvError,
+  type Platform,
   type RepoProfile,
   type Stage,
   type UseCase,
@@ -320,17 +321,20 @@ export async function regenerate(
  * Refusing here rather than later is deliberate: the alternative is an eight
  * minute run that ends in a demo nobody wants.
  */
+/** Platforms we can currently obtain HTML for. */
+const FILMABLE_PLATFORMS = new Set<Platform>(["web", "electron"]);
+
 export function requireE2e(profile: RepoProfile): void {
-  // A desktop app fails for a bigger reason than a missing test suite, and
-  // reporting the smaller one would send someone off to write specs that
-  // still could not be filmed. Superdemovideo drives a browser at a URL; an
-  // Electron window is not at a URL, and its interface generally stops
-  // working the moment it is loaded outside Electron, because it reaches for
-  // APIs the preload script provides.
-  if (profile.framework === "electron") {
+  // Every demo is filmed as HTML, so what matters is whether we have a way to
+  // get HTML for this kind of app. A web app serves its own; an Electron app's
+  // renderer is HTML already, behind a bridge we stand in for. Native apps
+  // have none until the render stage exists, and until then saying so is more
+  // use than reporting a missing test suite — someone told to write specs
+  // would write them and still have nothing filmable.
+  if (!FILMABLE_PLATFORMS.has(profile.platform)) {
     throw new SdvError(
       "SDV-E012",
-      "this project builds an Electron desktop app; capturing one is not implemented",
+      `this is a ${profile.platform} app; rendering its screens as HTML is not implemented yet`,
     );
   }
 

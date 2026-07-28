@@ -23,6 +23,6 @@
       "@sdv/api": ["./packages/api/src/index.ts"]
     }
   },
-  "include": ["packages/*/src/**/*", "packages/*/*.ts", "scripts/**/*"],
+  "include": ["packages/*/src/**/*", "packages/*/test/**/*", "packages/*/*.ts", "scripts/**/*"],
   "exclude": ["**/node_modules", "**/dist", "var", "fixtures", "apps"]
 }

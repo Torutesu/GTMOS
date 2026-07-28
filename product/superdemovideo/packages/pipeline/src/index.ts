@@ -13,6 +13,14 @@ export { understand } from "./stages/understand.ts";
 export { flowgen } from "./stages/flowgen.ts";
 export { compose } from "./stages/compose.ts";
 export { emit, withPathAliases } from "./stages/emit.ts";
+export {
+  readBridgeSurface,
+  bridgeScript,
+  injectBridge,
+  findPreload,
+  findRendererOutput,
+  type BridgeSurface,
+} from "./stages/bridge.ts";
 export { buildStandalone } from "./standalone.ts";
 export { publish, badgeSvg } from "./stages/publish.ts";
 export { diff, pixelDiff, DIFF_TUNING } from "./stages/diff.ts";

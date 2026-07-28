@@ -11,6 +11,17 @@ export type LocalizedText = z.infer<typeof LocalizedText>;
  * RepoProfile — the output of Detect, editable by the user
  * ------------------------------------------------------------------ */
 
+/**
+ * What kind of thing the repository builds.
+ *
+ * Every demo is filmed as HTML in a browser, whatever the app is. The
+ * platform decides only how that HTML is obtained: a web app serves its own,
+ * an Electron app already has one behind a bridge we have to stand in for,
+ * and a native app has none, so it has to be rendered from its UI source.
+ */
+export const Platform = z.enum(["web", "electron", "macos", "ios", "android"]);
+export type Platform = z.infer<typeof Platform>;
+
 export const Framework = z.enum([
   "nextjs",
   "vite",
@@ -36,6 +47,7 @@ export const EnvRequirement = z.object({
 });
 
 export const RepoProfile = z.object({
+  platform: Platform.default("web"),
   framework: Framework,
   packageManager: PackageManager,
   nodeVersion: z.string().nullable(),

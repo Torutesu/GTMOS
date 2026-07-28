@@ -1,6 +1,12 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { RepoProfile, SdvError, type Framework, type PackageManager } from "@sdv/core";
+import {
+  RepoProfile,
+  SdvError,
+  type Framework,
+  type PackageManager,
+  type Platform,
+} from "@sdv/core";
 
 /**
  * Work out how to build and run the app.
@@ -16,10 +22,29 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
   const dir = appRoot ? join(srcDir, appRoot) : srcDir;
 
   const pkg = await readJson<PackageJson>(join(dir, "package.json"));
+  const platform = await detectPlatform(srcDir, dir, pkg ?? {});
+
+  // A native project has no package.json and no npm scripts to read. Its
+  // screens are rendered from source rather than served by it, so the fields
+  // that describe installing and starting a web app are left empty on purpose
+  // — the profile says what this is, and the render stage takes it from there.
+  if (platform !== "web" && platform !== "electron") {
+    return RepoProfile.parse({
+      platform,
+      framework: "unknown",
+      packageManager: "npm",
+      nodeVersion: null,
+      appRoot,
+      build: { install: "", build: null, start: "", port: 4180 },
+      e2e: await detectE2e(dir),
+      env: [],
+      confidence: 0.6,
+    });
+  }
+
   if (!pkg) {
     throw new SdvError("SDV-E010", `no package.json under ${appRoot || "the repository root"}`);
   }
-
   const rootPkg = appRoot ? await readJson<PackageJson>(join(srcDir, "package.json")) : null;
   // The pin usually lives at the workspace root, not in the app package.
   const pinned = pkg.packageManager ?? rootPkg?.packageManager;
@@ -30,7 +55,14 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
 
   const buildScript = pickScript(scripts, ["build"]);
   const startScript = pickScript(scripts, ["start", "preview", "serve"]);
-  const { port, source: portSource } = await detectPort(dir, scripts, framework, startScript);
+  // An Electron renderer is served by us, not by the app, so the port is not
+  // something to discover — it is something we choose. `electron-vite preview`
+  // would otherwise be read as a Vite dev server on 5173, which nothing is
+  // listening on.
+  const { port, source: portSource } =
+    platform === "electron"
+      ? { port: ELECTRON_SERVE_PORT, source: "flag" as PortSource }
+      : await detectPort(dir, scripts, framework, startScript);
 
   const e2e = await detectE2e(dir);
   const env = await detectEnv(dir);
@@ -65,9 +97,13 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
   // A dev server compiles on demand, so the production build is not on the
   // path to a demo — only a way for one to fail. Someone who wants the built
   // output can put the command back through the profile override.
-  const needsBuild = !startsDevServer(startScript ? resolveScript(scripts, startScript) : "");
+  // Electron always needs its build: the renderer we serve is what it emits.
+  const needsBuild =
+    platform === "electron" ||
+    !startsDevServer(startScript ? resolveScript(scripts, startScript) : "");
 
   const profile: RepoProfile = {
+    platform,
     framework,
     packageManager,
     nodeVersion,
@@ -90,6 +126,78 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
   };
 
   return RepoProfile.parse(profile);
+}
+
+/* ------------------------------- platform -------------------------------- */
+
+/**
+ * What kind of thing this repository builds.
+ *
+ * Separate from the framework on purpose. An Electron app is built with Vite;
+ * an iOS app may have no JavaScript at all. The framework says how the source
+ * compiles, the platform says how a browser is going to get at the result —
+ * and since every demo is filmed as HTML, that second question is the one the
+ * rest of the pipeline turns on.
+ */
+async function detectPlatform(
+  srcDir: string,
+  appDir: string,
+  pkg: PackageJson,
+): Promise<Platform> {
+  const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+  if (
+    "electron" in deps ||
+    "electron-vite" in deps ||
+    "electron-builder" in deps ||
+    "@electron-forge/cli" in deps
+  ) {
+    return "electron";
+  }
+
+  const roots = [appDir, srcDir];
+  for (const root of roots) {
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    const names = entries.map((e) => e.name);
+
+    // Android announces itself with Gradle plus a manifest.
+    if (
+      names.includes("settings.gradle") ||
+      names.includes("settings.gradle.kts") ||
+      names.includes("build.gradle.kts")
+    ) {
+      if (await exists(join(root, "app", "src", "main", "AndroidManifest.xml"))) return "android";
+      if (names.includes("gradlew")) return "android";
+    }
+
+    // Apple platforms share a project format; the destination distinguishes
+    // them, and Info.plist is where that is usually visible.
+    const xcode = names.find((n) => n.endsWith(".xcodeproj") || n.endsWith(".xcworkspace"));
+    if (xcode || names.includes("Package.swift") || names.includes("Podfile")) {
+      const apple = await appleDestination(root);
+      if (apple) return apple;
+    }
+  }
+
+  return "web";
+}
+
+async function appleDestination(root: string): Promise<"ios" | "macos" | null> {
+  // The declared target platform beats guessing from imports: a SwiftUI file
+  // looks the same either way.
+  for (const name of ["Package.swift", "Podfile", "project.yml"]) {
+    const text = await readMaybe(join(root, name));
+    if (!text) continue;
+    if (/\.iOS\(|platform :ios|IPHONEOS_DEPLOYMENT_TARGET/i.test(text)) return "ios";
+    if (/\.macOS\(|platform :osx|MACOSX_DEPLOYMENT_TARGET/i.test(text)) return "macos";
+  }
+  for (const plist of ["Info.plist", "Sources/Info.plist"]) {
+    const text = await readMaybe(join(root, plist));
+    if (text && /UIApplicationSceneManifest|UILaunchStoryboard/i.test(text)) return "ios";
+    if (text && /NSPrincipalClass|LSUIElement/i.test(text)) return "macos";
+  }
+  // An Xcode project we cannot place: macOS is the safer default because the
+  // pipeline treats both the same way, and the profile can be overridden.
+  return "macos";
 }
 
 /* ------------------------------ framework -------------------------------- */
@@ -279,6 +387,9 @@ const COMMAND_PORTS: Array<[RegExp, number]> = [
 ];
 
 export type PortSource = "flag" | "config" | "command" | "default";
+
+/** Where we serve an Electron renderer. Ours to pick, so it is never a guess. */
+export const ELECTRON_SERVE_PORT = 4180;
 
 /**
  * Commands that compile on demand rather than serve a build.
