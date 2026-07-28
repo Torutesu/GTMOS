@@ -7,7 +7,31 @@ import { DiffReport, type CaptureManifest } from "@sdv/core";
 import { insertDiff } from "@sdv/db";
 import type { StageContext } from "../context.ts";
 
-const CHANGED_THRESHOLD = 0.02;
+/**
+ * How much of a screen has to move before we call it changed.
+ *
+ * A rewritten line of body copy measures about 0.2% of the screen, and that
+ * is exactly the change this product exists to catch: the caption describing
+ * that screen may now be describing something the app no longer says.
+ *
+ * Two renders of a deterministically seeded app measure exactly zero, so
+ * there is no noise floor to clear. The threshold's job is only to ignore
+ * incidental differences — a caret, a scrollbar — not to demand that a change
+ * be large. 0.05% of 960×600 is under three hundred pixels: far more than any
+ * stray artefact, far less than a sentence.
+ */
+const CHANGED_THRESHOLD = 0.0005;
+
+/**
+ * Resolution the comparison runs at.
+ *
+ * Small enough to stay cheap per step, large enough that text survives the
+ * downscale as something other than grey mush. At 480×300 a changed sentence
+ * was indistinguishable from no change at all.
+ */
+const COMPARE_SIZE = { width: 960, height: 600 };
+
+export const DIFF_TUNING = { changedThreshold: CHANGED_THRESHOLD, compareSize: COMPARE_SIZE };
 
 /**
  * Compare this regeneration against the published one.
@@ -67,7 +91,9 @@ export async function diff(
     steps.push({
       index: i,
       caption: after.caption,
-      diffRatio: Number(ratio.toFixed(4)),
+      // Five places: a changed sentence is a fraction of a percent, and
+      // rounding it to two would report it as zero.
+      diffRatio: Number(ratio.toFixed(5)),
       changed: ratio > CHANGED_THRESHOLD,
       status: "ok",
     });
@@ -102,12 +128,13 @@ function summarise(changed: number, broken: number, total: number): string {
 /**
  * Proportion of pixels that differ.
  *
- * Both frames are normalised to the same modest size first — a real UI change
- * shows up at any resolution, and comparing at full size would spend seconds
- * per step to tell us the same thing.
+ * Both frames are normalised to the same size first, so two captures taken at
+ * different viewport scales still compare cleanly. Anti-aliasing is excluded:
+ * without that, re-rendering identical text on a different day registers as a
+ * change and every diff report becomes noise.
  */
-async function pixelDiff(aPath: string, bPath: string): Promise<number> {
-  const size = { width: 480, height: 300 };
+export async function pixelDiff(aPath: string, bPath: string): Promise<number> {
+  const size = COMPARE_SIZE;
   const [a, b] = await Promise.all([normalise(aPath, size), normalise(bPath, size)]);
   const out = new PNG({ width: size.width, height: size.height });
   const differing = pixelmatch(a.data, b.data, out.data, size.width, size.height, {

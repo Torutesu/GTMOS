@@ -14,7 +14,7 @@ export { flowgen } from "./stages/flowgen.ts";
 export { compose } from "./stages/compose.ts";
 export { emit, withPathAliases } from "./stages/emit.ts";
 export { publish, badgeSvg } from "./stages/publish.ts";
-export { diff } from "./stages/diff.ts";
+export { diff, pixelDiff, DIFF_TUNING } from "./stages/diff.ts";
 export * from "./compose/timeline.ts";
 export * from "./compose/render.ts";
 export * from "./compose/encode.ts";
