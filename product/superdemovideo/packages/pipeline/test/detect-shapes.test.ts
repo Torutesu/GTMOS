@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detect } from "@sdv/pipeline";
-import { resolveScript } from "../src/stages/detect.ts";
+import { portInBlock, resolveScript } from "../src/stages/detect.ts";
 
 /**
  * Repository shapes that detection got wrong in the field.
@@ -191,5 +191,58 @@ describe("whether the production build is on the path to a demo", () => {
       await rm(dir, { recursive: true, force: true });
       dir = "";
     }
+  });
+});
+
+describe("a port written as an expression in the config", () => {
+  // reveal.js and Excalidraw both write
+  // `port: Number(process.env.SOMETHING || 8000)`. Matching only a literal
+  // assignment found nothing and fell through to a framework default, which
+  // is how a repository whose dev server starts in a second failed to be
+  // reached for ninety.
+  const config = `
+    import { defineConfig } from "vite";
+    export default defineConfig({
+      server: { port: Number(process.env.npm_config_port || 8000), open: true },
+      preview: { port: 4999 },
+      build: { outDir: "dist" },
+    });`;
+
+  it("reads the server block when a dev server is what starts", async () => {
+    const profile = await detect(
+      await repo({
+        "package.json": { name: "a", scripts: { start: "vite" }, devDependencies: { vite: "5.0.0" } },
+        "vite.config.ts": config,
+        "index.html": "<!doctype html>",
+      }),
+    );
+    expect(profile.build.port).toBe(8000);
+  });
+
+  it("reads the preview block when the build is what gets served", async () => {
+    const profile = await detect(
+      await repo({
+        "package.json": {
+          name: "a",
+          scripts: { start: "vite preview", build: "vite build" },
+          devDependencies: { vite: "5.0.0" },
+        },
+        "vite.config.ts": config,
+        "index.html": "<!doctype html>",
+      }),
+    );
+    expect(profile.build.port).toBe(4999);
+  });
+
+  it("ignores a name that merely ends in port", () => {
+    // `npm_config_port ||` has no colon after it and must not be read as one.
+    expect(portInBlock(`server: { port: Number(process.env.npm_config_port || 8000) }`, "server")).toBe(8000);
+    expect(portInBlock(`server: { host: true }`, "server")).toBeNull();
+    expect(portInBlock(`build: { outDir: "x" }`, "server")).toBeNull();
+  });
+
+  it("does not walk out of its own block", () => {
+    const text = `server: { hmr: { port: 24678 } }, preview: { port: 4173 }`;
+    expect(portInBlock(text, "preview")).toBe(4173);
   });
 });

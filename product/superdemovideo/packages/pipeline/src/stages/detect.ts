@@ -286,23 +286,59 @@ async function detectPort(
     if (m) return { port: Number(m[1]), source: "flag" };
   }
 
-  for (const cfg of ["vite.config.ts", "vite.config.js", "vite.config.mts"]) {
-    const text = await readMaybe(join(dir, cfg));
-    if (!text) continue;
-    const m =
-      /preview\s*:\s*\{[^}]*port\s*:\s*(\d{2,5})/s.exec(text) ?? /port\s*:\s*(\d{2,5})/.exec(text);
-    if (m) return { port: Number(m[1]), source: "config" };
+  const resolvedStart = startScript ? resolveScript(scripts, startScript) : "";
+
+  // The config, reading the block that belongs to the command being run.
+  // reveal.js sets `server: { port: Number(process.env.npm_config_port || 8000) }`
+  // — the number is there but it is not a literal assignment, and the block it
+  // sits in matters: `server` is the dev server, `preview` serves the build.
+  const block = startsDevServer(resolvedStart) ? "server" : "preview";
+  for (const base of ["vite.config", "vitest.config"]) {
+    for (const ext of CONFIG_EXTENSIONS) {
+      const text = await readMaybe(join(dir, `${base}.${ext}`));
+      if (!text) continue;
+      const found = portInBlock(text, block) ?? portInBlock(text, block === "server" ? "preview" : "server");
+      if (found) return { port: found, source: "config" };
+    }
   }
 
   // What the start command actually invokes.
-  if (startScript) {
-    const resolved = resolveScript(scripts, startScript);
+  if (resolvedStart) {
     for (const [pattern, port] of COMMAND_PORTS) {
-      if (pattern.test(resolved)) return { port, source: "command" };
+      if (pattern.test(resolvedStart)) return { port, source: "command" };
     }
   }
 
   return { port: DEFAULT_PORTS[framework], source: "default" };
+}
+
+/**
+ * The port inside one block of a config object.
+ *
+ * Deliberately not a parser. It finds the named block, walks to its matching
+ * brace, and takes the first number that follows a `port:` — which survives
+ * `port: Number(process.env.PORT || 8000)` in a way that matching only a
+ * literal does not. `npm_config_port` and friends are skipped because the
+ * pattern requires the colon.
+ */
+export function portInBlock(text: string, block: "server" | "preview"): number | null {
+  const start = new RegExp(`(^|[\\s,{])${block}\\s*:\\s*\\{`, "m").exec(text);
+  if (!start) return null;
+
+  const open = text.indexOf("{", start.index + start[0].length - 1);
+  let depth = 0;
+  let end = text.length;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}" && --depth === 0) {
+      end = i;
+      break;
+    }
+  }
+
+  const body = text.slice(open, end);
+  const m = /\bport\s*:\s*[^,}\n]*?(\d{2,5})/.exec(body);
+  return m ? Number(m[1]) : null;
 }
 
 function defaultStart(framework: Framework, port: number): string {

@@ -10,10 +10,11 @@
  *
  *   pnpm tsx scripts/field-test.ts /path/to/repo https://github.com/o/r ...
  *   pnpm tsx scripts/field-test.ts --build ...     also try to start the app
+ *   pnpm tsx scripts/field-test.ts --keep ...      reuse var/field (deps cache + logs)
  *
  * With no arguments it uses whatever is checked out under fixtures/field/.
  */
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,7 +52,16 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const varDir = await mkdtemp(join(tmpdir(), "sdv-field-"));
+  // `--keep` reuses one directory across runs, which keeps the dependency
+  // cache and the build logs. Installing a real repository takes minutes, and
+  // paying that on every iteration is the reason this loop was slow enough to
+  // discourage running it.
+  const keep = args.includes("--keep");
+  const varDir = keep
+    ? join(FIELD_DIR, "..", "..", "var", "field")
+    : await mkdtemp(join(tmpdir(), "sdv-field-"));
+  if (keep) await mkdir(varDir, { recursive: true });
+
   const rt = await createRuntime({ varDir, llmMode: "mock", token: null, port: 0 });
   const reports: Report[] = [];
 
@@ -61,7 +71,8 @@ async function main(): Promise<void> {
     }
   } finally {
     await rt.close();
-    await rm(varDir, { recursive: true, force: true });
+    if (keep) console.log(`\nKept under ${varDir} — logs and the dependency cache survive.`);
+    else await rm(varDir, { recursive: true, force: true });
   }
 
   print(reports, withBuild);
