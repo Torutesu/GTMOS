@@ -66,6 +66,28 @@ Taskloop は**こちらが「検出できるように」作った最良ケース
 学びは**リポジトリではなく「形」として** `packages/pipeline/test/detect-shapes.test.ts` に固定した。
 実リポジトリを clone するテストは、相手が変わった瞬間に嘘になるので採らない。
 
+### `--build`(実際に起動するか)
+
+検出が全部正しくなった状態で 2 本を起動まで通したところ、**2 本とも install で死んだ。**
+つまり実在リポジトリが最初に死ぬのは detect ではなく **install** で、
+しかも今回の 2 件はどちらも「本当は失敗ではない」死に方だった。
+
+| repo | 症状 | 判定 |
+| --- | --- | --- |
+| reveal.js | `npm ci` が `package.json` と lockfile の不一致で拒否 | **回復可能。** 誰も install していないリポジトリでは日常的な状態 |
+| next-template | install が 10 分でタイムアウト | 遅いだけの可能性。**10 分間まったく無出力**だったので、ハングと区別がつかなかった |
+
+対応:
+
+- **strict → permissive のフォールバック。** `npm ci` → `npm install`、
+  `pnpm --frozen-lockfile` → `--no-frozen-lockfile`、`yarn --frozen-lockfile` → `yarn install`。
+  再現性のある木のほうが望ましいので strict を先に試すが、
+  **lockfile が古いという理由でデモを作らないのは誰の得にもならない。**
+  すでに permissive なコマンドには null を返す(同じコマンドを 2 回走らせて
+  「再試行した」ことにしないため)。
+- install の出力を `ctx.progress` に流す。**10 分の沈黙はハングと見分けがつかない。**
+- install のタイムアウトを 15 分へ。
+
 ### まだ埋まっていない穴
 
 - **候補の質が mock では測れない。** 全リポジトリで「1 候補・spec 由来 0 件」だが、

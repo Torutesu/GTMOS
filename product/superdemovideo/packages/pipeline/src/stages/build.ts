@@ -1,11 +1,11 @@
 import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { SdvError, shortSha, waitFor, type RepoProfile } from "@sdv/core";
+import { SdvError, shortSha, tailLines, waitFor, type RepoProfile } from "@sdv/core";
 import type { StageContext } from "../context.ts";
 import { stagePaths } from "../context.ts";
 import { assertOk, type StartedProcess } from "../sandbox.ts";
 
-const INSTALL_TIMEOUT_MS = 10 * 60_000;
+const INSTALL_TIMEOUT_MS = 15 * 60_000;
 const BUILD_TIMEOUT_MS = 10 * 60_000;
 const START_TIMEOUT_MS = 90_000;
 
@@ -48,17 +48,57 @@ export async function build(ctx: StageContext, profile: RepoProfile): Promise<Bu
   }
 
   if (!restored) {
+    // The sandbox defaults to NODE_ENV=production, which is right for the
+    // build and the server but silently drops devDependencies during the
+    // install — and the build tool itself usually lives there. Installing in
+    // development mode is what CI does by simply not setting NODE_ENV.
+    const installEnv = { ...env, NODE_ENV: "development" };
+    const runInstall = (command: string) =>
+      ctx.sandbox.exec(command, {
+        cwd: appDir,
+        env: installEnv,
+        timeoutMs: INSTALL_TIMEOUT_MS,
+        onLine: (line) => {
+          // A ten-minute silence looks identical to a hang. Surface enough to
+          // tell the two apart without replaying the whole npm log.
+          if (/(added|resolved|reused|downloaded|packages in|error)/i.test(line)) {
+            ctx.progress({ stage: "build", status: "running", message: line.slice(0, 120) });
+          }
+        },
+      });
+
     ctx.progress({ stage: "build", status: "running", message: "Installing dependencies" });
-    const install = await ctx.sandbox.exec(profile.build.install, {
-      cwd: appDir,
-      // The sandbox defaults to NODE_ENV=production, which is right for the
-      // build and the server but silently drops devDependencies during the
-      // install — and the build tool itself usually lives there. Installing in
-      // development mode is what CI does by simply not setting NODE_ENV.
-      env: { ...env, NODE_ENV: "development" },
-      timeoutMs: INSTALL_TIMEOUT_MS,
-    });
-    await writeFile(join(paths.logs, "install.log"), install.combined);
+    let install = await runInstall(profile.build.install);
+
+    /**
+     * Try again without the lockfile requirement.
+     *
+     * `npm ci` refuses outright when package.json and the lockfile have
+     * drifted, which is an ordinary state for a repository nobody has
+     * installed in a while — reveal.js is checked in that way today. The
+     * strict form goes first because a reproducible tree is worth having, but
+     * refusing to film a demo over a stale lockfile helps nobody.
+     */
+    const relaxed = relaxInstall(profile.build.install);
+    if (install.code !== 0 && !install.timedOut && relaxed) {
+      ctx.log.warn("strict install failed, retrying without the lockfile requirement", {
+        detail: tailLines(install.combined, 2),
+      });
+      ctx.progress({
+        stage: "build",
+        status: "running",
+        message: `Lockfile is out of date — retrying with \`${relaxed}\``,
+      });
+      const second = await runInstall(relaxed);
+      await writeFile(
+        join(paths.logs, "install.log"),
+        `$ ${profile.build.install}\n${install.combined}\n\n$ ${relaxed}\n${second.combined}`,
+      );
+      install = second;
+    } else {
+      await writeFile(join(paths.logs, "install.log"), install.combined);
+    }
+
     assertOk(install, "SDV-E020", "dependency install");
 
     if (cachePath && (await pathExists(modulesDir))) {
@@ -114,6 +154,25 @@ export async function build(ctx: StageContext, profile: RepoProfile): Promise<Bu
       await proc.stop();
     },
   };
+}
+
+/**
+ * The same install without the lockfile requirement.
+ *
+ * Returns null when the command is already permissive, so the caller does not
+ * run an identical command twice and call it a retry.
+ */
+export function relaxInstall(command: string): string | null {
+  const map: Array<[RegExp, string]> = [
+    [/\bnpm\s+ci\b/, "npm install --no-audit --no-fund"],
+    [/\bpnpm\s+install\s+--frozen-lockfile\b/, "pnpm install --no-frozen-lockfile"],
+    [/\byarn\s+install\s+--frozen-lockfile\b/, "yarn install"],
+    [/\byarn\s+install\s+--immutable\b/, "yarn install"],
+  ];
+  for (const [pattern, replacement] of map) {
+    if (pattern.test(command)) return command.replace(pattern, replacement);
+  }
+  return null;
 }
 
 /**
