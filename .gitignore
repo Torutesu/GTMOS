@@ -2,3 +2,7 @@ node_modules/
 .shots/
 .DS_Store
 *.log
+product/superdemovideo/node_modules/
+product/superdemovideo/**/node_modules/
+product/superdemovideo/var/
+product/superdemovideo/**/dist/

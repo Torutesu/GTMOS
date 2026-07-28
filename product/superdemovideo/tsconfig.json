@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "paths": {
+      "@sdv/core": ["./packages/core/src/index.ts"],
+      "@sdv/db": ["./packages/db/src/index.ts"],
+      "@sdv/llm": ["./packages/llm/src/index.ts"],
+      "@sdv/pipeline": ["./packages/pipeline/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*", "packages/*/*.ts", "scripts/**/*"],
+  "exclude": ["**/node_modules", "**/dist", "var", "fixtures", "apps"]
+}

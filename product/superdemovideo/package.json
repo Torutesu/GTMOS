@@ -1,0 +1,32 @@
+{
+  "name": "superdemovideo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "doctor": "tsx scripts/doctor.ts",
+    "accept": "tsx scripts/accept.ts",
+    "api": "tsx packages/api/src/main.ts",
+    "sdv": "tsx packages/cli/src/main.ts",
+    "build:player": "tsx packages/player/build.ts",
+    "build:web": "pnpm --filter @sdv/web build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "sharp": "^0.35.3"
+  }
+}
