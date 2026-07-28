@@ -77,6 +77,7 @@ export async function analyse(ctx: StageContext): Promise<AnalyseResult> {
     return stored ? { ...detected, ...stored } : detected;
   });
   await setRepoProfile(ctx.db, ctx.projectId, profile);
+  requireE2e(profile);
 
   const { digest, useCases } = await timed(ctx, "understand", () =>
     understand(ctx, paths.src, profile),
@@ -304,6 +305,35 @@ export async function regenerate(
 }
 
 /* -------------------------------- helpers -------------------------------- */
+
+/**
+ * A demo is built from the repository's end-to-end tests.
+ *
+ * This is a requirement, not a preference. A spec is an ordered list of user
+ * actions with selectors already proven to resolve against the running app,
+ * and it represents a journey the team decided was worth protecting. Nothing
+ * else in a repository carries that. Inferring a demo from route names
+ * instead produced exactly one generic candidate on every repository tried,
+ * with selectors we guessed and would then have to maintain — a worse
+ * product, offered to more people.
+ *
+ * Refusing here rather than later is deliberate: the alternative is an eight
+ * minute run that ends in a demo nobody wants.
+ */
+export function requireE2e(profile: RepoProfile): void {
+  if (!profile.e2e) {
+    throw new SdvError(
+      "SDV-E011",
+      "no Playwright or Cypress configuration was found in this project",
+    );
+  }
+  if (profile.e2e.specPaths.length === 0) {
+    throw new SdvError(
+      "SDV-E011",
+      `a ${profile.e2e.kind} configuration exists but ${profile.e2e.testDir} contains no specs`,
+    );
+  }
+}
 
 async function loadDigest(ctx: StageContext): Promise<RepoDigest> {
   const raw = await ctx.storage.get(`runs/${ctx.runId}/digest.json`);

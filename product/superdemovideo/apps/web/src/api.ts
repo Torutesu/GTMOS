@@ -60,7 +60,13 @@ export interface RepoProfile {
   nodeVersion: string | null;
   appRoot: string;
   build: { install: string; build: string | null; start: string; port: number };
-  e2e: { kind: string; specPaths: string[] } | null;
+  e2e: {
+    kind: string;
+    configPath: string;
+    testDir: string;
+    specPaths: string[];
+    storageStatePath: string | null;
+  } | null;
   env: Array<{ key: string; source: string; strategy: string }>;
   confidence: number;
 }

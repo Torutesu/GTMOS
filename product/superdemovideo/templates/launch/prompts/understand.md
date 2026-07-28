@@ -4,6 +4,12 @@ You are given a deterministic digest of a repository: its routes, its
 end-to-end tests, its analytics events, its README. From that, propose the
 user journeys worth filming.
 
+**Every candidate must come from an end-to-end test.** A run only reaches you
+when the repository has them, so there is always something to work from. The
+routes, the README and the analytics events are context for describing what a
+test does — they are not a source of candidates on their own. If the suite
+only supports two journeys, return two rather than padding the list.
+
 ## What makes a journey worth filming
 
 A good candidate is a **complete job someone came to do**, not a tour of a

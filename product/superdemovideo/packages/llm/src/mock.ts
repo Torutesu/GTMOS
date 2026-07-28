@@ -16,22 +16,21 @@ export function createMockLlm(): LlmClient {
     mode: "mock",
     usage: (): LlmUsage[] => [],
 
+    /**
+     * Candidates come from specs and from nowhere else.
+     *
+     * There used to be a fallback that made candidates out of route names when
+     * a repository had no tests. It produced one generic entry on every real
+     * repository tried, built on selectors we had guessed, and its existence
+     * meant the product had two qualities of output with no way for anyone to
+     * tell which one they were getting. A run without specs is now refused
+     * before it starts.
+     */
     async extractUseCases(digest: RepoDigest): Promise<UseCaseDraft[]> {
-      const fromSpecs = digest.specs
+      return digest.specs
         .filter((s) => !s.isSetup && s.actions.length > 0)
-        .map((spec) => specToUseCase(spec));
-
-      const covered = new Set(fromSpecs.map((u) => u.entryRoute));
-      const fromRoutes = digest.routes
-        .filter((r) => !covered.has(r.path) && r.path !== "/login")
-        .slice(0, Math.max(0, 5 - fromSpecs.length))
-        .map((r) => routeToUseCase(r.path, r.label));
-
-      const all = [...fromSpecs, ...fromRoutes];
-      if (all.length === 0) {
-        all.push(routeToUseCase("/", digest.projectName));
-      }
-      return all.slice(0, 7);
+        .map((spec) => specToUseCase(spec))
+        .slice(0, 7);
     },
 
     async generateFlow(digest: RepoDigest, useCase: UseCase): Promise<Flow> {
@@ -80,22 +79,6 @@ function specToUseCase(spec: SpecInfo): UseCaseDraft {
     outline: spec.actions.filter((a) => a.kind !== "goto").map((a) => describeAction(a)),
     signals: ["e2e-test"],
     origin: spec.file,
-  };
-}
-
-function routeToUseCase(path: string, label: string | null): UseCaseDraft {
-  const name = label ?? (path.replace(/^\//, "").replace(/[-/]/g, " ") || "the app");
-  const title = titleCase(name);
-  return {
-    title: { en: title, ja: title },
-    hypothesis: {
-      en: `Give a visitor a first look at ${lowerFirst(title)}.`,
-      ja: `${title}を最初のひと目で伝える。`,
-    },
-    entryRoute: path,
-    outline: [`Open ${path}`],
-    signals: ["route"],
-    origin: null,
   };
 }
 

@@ -9,6 +9,7 @@
 export const ERROR_CODES = [
   "SDV-E001", // repo too large / unfetchable
   "SDV-E010", // framework not detected
+  "SDV-E011", // no end-to-end tests to derive a demo from
   "SDV-E020", // dependency install failed
   "SDV-E021", // build failed
   "SDV-E022", // start failed / port never opened
@@ -36,6 +37,10 @@ const SPECS: Record<ErrorCode, ErrorSpec> = {
   "SDV-E010": {
     title: "Could not work out how to build this project",
     hint: "Set the build command, start command and port manually.",
+  },
+  "SDV-E011": {
+    title: "This repository has no end-to-end tests",
+    hint: "Superdemovideo builds demos from Playwright or Cypress specs. Add one spec for the journey you want shown, then run again.",
   },
   "SDV-E020": {
     title: "Installing dependencies failed",

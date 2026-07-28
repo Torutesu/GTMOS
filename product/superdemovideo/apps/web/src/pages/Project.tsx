@@ -129,6 +129,55 @@ function PublicationCard({ publication }: { publication: Publication }) {
 }
 
 /**
+ * What the repository's tests do and do not give us.
+ *
+ * The demo is built from the end-to-end suite, so a repository without one
+ * cannot be filmed and should learn that here rather than eight minutes into
+ * a run. A suite that exists but signs nobody in is a softer case: the demo
+ * will work, it will just show the product logged out — worth saying plainly
+ * for anything whose interesting half is behind a login.
+ */
+function E2eRequirement({ profile }: { profile: RepoProfile }) {
+  const e2e = profile.e2e;
+  const specs = e2e?.specPaths.length ?? 0;
+
+  if (!e2e || specs === 0) {
+    return (
+      <div className="card error" style={{ margin: 0 }}>
+        <strong>No end-to-end tests — a demo cannot be built from this repository.</strong>
+        <p className="small" style={{ margin: "6px 0 0" }}>
+          Every step of a demo comes from a Playwright or Cypress spec: the actions in
+          order, and selectors already proven to resolve against the running app. Nothing
+          else in a repository carries that.{" "}
+          {e2e
+            ? `A ${e2e.kind} config exists, but ${e2e.testDir} has no specs in it.`
+            : "Add one spec for the journey you want shown, then run again."}
+        </p>
+      </div>
+    );
+  }
+
+  if (!e2e.storageStatePath) {
+    return (
+      <div className="card" style={{ margin: 0, borderColor: "var(--warn)" }}>
+        <strong>{specs} specs, but no saved sign-in.</strong>
+        <p className="small muted" style={{ margin: "6px 0 0" }}>
+          The demo will be filmed signed out. If the part worth showing is behind a
+          login, add a <code>storageState</code> to the {e2e.kind} config so the run can
+          reuse your existing setup — Superdemovideo never asks for real credentials.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <p className="small muted" style={{ margin: 0 }}>
+      {specs} specs and a saved sign-in. Candidates come from these.
+    </p>
+  );
+}
+
+/**
  * The profile override.
  *
  * Detection is deterministic and usually right, but "usually" is not a product
@@ -172,6 +221,8 @@ function ProfileForm({ project, onSaved }: { project: Project; onSaved: () => vo
         </span>
         {profile.e2e && <span className="pill">{profile.e2e.specPaths.length} e2e specs</span>}
       </div>
+
+      <E2eRequirement profile={profile} />
 
       <div>
         <label htmlFor="install">Install</label>
