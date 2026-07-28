@@ -48,7 +48,31 @@ export interface StartedProcess {
  * an install script cannot read what was never put in its environment.
  */
 function baseEnv(extra: Record<string, string> = {}): Record<string, string> {
-  const passthrough = ["PATH", "HOME", "LANG", "TZ", "SHELL", "TMPDIR"];
+  const passthrough = [
+    "PATH",
+    "HOME",
+    "LANG",
+    "TZ",
+    "SHELL",
+    "TMPDIR",
+    // How this machine reaches the internet. Scrubbing these does not make
+    // the sandbox safer, it makes it unable to install anything: on a proxied
+    // network corepack could not fetch the pinned package manager and failed
+    // with a self-signed certificate error, which reads as a broken
+    // repository rather than a stripped environment. These describe the
+    // network, not the account — unlike an API key, which stays out.
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "NODE_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "CURL_CA_BUNDLE",
+    "REQUESTS_CA_BUNDLE",
+  ];
   const env: Record<string, string> = {};
   for (const key of passthrough) {
     const v = process.env[key];
