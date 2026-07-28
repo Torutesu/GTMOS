@@ -1,4 +1,7 @@
-# GTM OS — プロダクトブリーフ
+# Superdemovideo(旧称 GTM OS)— プロダクトブリーフ
+
+> **プロダクト名は Superdemovideo に確定**(2026-07-28)。会社名 GTMOS との衝突は解消。
+> 要件定義は [`superdemovideo-requirements.md`](./superdemovideo-requirements.md) を参照。
 
 > GitHub リポジトリを繋ぐだけで、AI がコードを読んで UI をレンダリングし、
 > **デモ動画とインタラクティブデモを同じフローから出力する**パイプライン。

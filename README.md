@@ -20,7 +20,8 @@ docs/
     shogunai-launch.md     型 #01 の 1 回目の実行。7日トライアル設計 + X 運用(設計)
     shogunai-gtm-checklist.md  上記の実行リスト。担当 / 完了条件 / 依存つき
   products/
-    gtm-os.md          GTM OS — コードからデモ動画 + インタラクティブデモを生成するパイプライン
+    superdemovideo-brief.md         Superdemovideo — 背景・競合・ポジショニング(旧 GTM OS)
+    superdemovideo-requirements.md  同・要件定義 v1.0(スコープ / 機能要件 / NFR / 受け入れ基準)
 site/
   index.html         LP(EN・デフォルト)
   ja/index.html      LP(JA)
