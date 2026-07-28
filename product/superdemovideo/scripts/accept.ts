@@ -22,6 +22,7 @@ import { runDoctor } from "./doctor.ts";
 const exec = promisify(execFile);
 const ROOT = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const FIXTURE = join(ROOT, "fixtures", "demo-app");
+const NATIVE_FIXTURE = join(ROOT, "fixtures", "native-app");
 const TEAM_PAGE = join(FIXTURE, "src", "pages", "TeamPage.tsx");
 
 const ANALYSE_TIMEOUT_MS = 8 * 60 * 1000;
@@ -338,6 +339,60 @@ async function main(): Promise<void> {
         ((run.cost as { totalSeconds?: number }).totalSeconds ?? 0) > 0,
         `${run.id}: total time is recorded`,
       );
+    }
+  });
+
+  /* 13 ------------------------------------------------------------------ */
+  await step("13. An app with no web front end at all still becomes a video", async () => {
+    // A SwiftUI project: no package.json, no dev server, no Playwright suite,
+    // and nothing to install. Its screens are rendered from the source that
+    // declares them and filmed like any other page, which is the whole claim
+    // of supporting more than the web.
+    const { project } = await http.post<{ project: { id: string } }>("/v1/projects", {
+      name: "Taskloop for iOS",
+      source: { kind: "local", path: NATIVE_FIXTURE },
+    });
+    const { run } = await http.post<{ run: { id: string } }>(`/v1/projects/${project.id}/runs`, {
+      kind: "initial",
+    });
+
+    const analysed = await waitForRun(http, run.id, ["awaiting_selection"], ANALYSE_TIMEOUT_MS);
+    assert(
+      analysed.status === "awaiting_selection",
+      `native run reached a selection (${analysed.error_code ?? "ok"})`,
+    );
+
+    const stored = await getProject(rt!.db, project.id);
+    assert(stored?.repo_profile?.platform === "ios", "detect called it an iOS app");
+
+    const { useCases } = await http.get<{ useCases: UseCase[] }>(`/v1/runs/${run.id}/use-cases`);
+    assert(useCases.length === 2, `one candidate per screen (${useCases.length}, want 2)`);
+    const team = useCases.find((c) => (c.origin ?? "").includes("TeamView.swift"));
+    assert(team !== undefined, "a candidate points back at the file that declared it");
+
+    await http.post(`/v1/use-cases/${team!.id}/select`);
+    const done = await waitForRun(http, run.id, ["succeeded"], PRODUCE_TIMEOUT_MS);
+    assert(done.status === "succeeded", `native run finished (${done.error_detail ?? "ok"})`);
+
+    const artifacts = await listArtifacts(rt!.db, run.id);
+    const landscape = artifacts.find((a) => a.kind === "video_169");
+    const path = (landscape?.files as Record<string, string> | undefined)?.["video_169.mp4"];
+    assert(path !== undefined && existsSync(path), "the iOS app has a 16:9 video");
+    if (path) {
+      const probe = await ffprobe(path);
+      assert(probe.codec === "h264", `native video is h264 (${probe.codec})`);
+      assert(probe.duration > 3, `native video runs ${probe.duration.toFixed(1)}s`);
+    }
+
+    // What was filmed is what the person chose from: rendering again in the
+    // production phase would film pages nobody saw.
+    const demoDir = (artifacts.find((a) => a.kind === "demo")?.files as
+      | Record<string, string>
+      | undefined)?.["demoDir"];
+    assert(demoDir !== undefined && existsSync(join(demoDir, "demo.json")), "the demo was emitted");
+    if (demoDir) {
+      const html = await readFile(join(demoDir, "demo.json"), "utf8");
+      assert(html.includes("Send invite"), "the demo shows the app's own words");
     }
   });
 }

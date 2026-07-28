@@ -43,6 +43,15 @@ export interface RepoDigest {
   analyticsEvents: string[];
   changelog: string | null;
   packageScripts: Record<string, string>;
+  /**
+   * Screens already rendered as HTML, for a native app.
+   *
+   * Empty for anything with a web front end of its own. When it is not empty
+   * it is the strongest thing in the digest: these are the exact pages the
+   * capture will drive, so a candidate built from them cannot reference a
+   * control that will not be there.
+   */
+  screens: NativeScreen[];
   /** Rough token size, used to decide what to trim. */
   approxTokens: number;
 }
@@ -69,6 +78,35 @@ export const ScriptDraft = z.object({
 });
 export type ScriptDraft = z.infer<typeof ScriptDraft>;
 
+/**
+ * A native screen rendered as HTML.
+ *
+ * SwiftUI, Jetpack Compose and Android XML declare a hierarchy of labelled
+ * controls rather than drawing pixels, which is the same shape as a document.
+ * Rendering that to HTML is what lets a macOS, iOS or Android app reach the
+ * same capture the web path uses — it is a rendition of what the source says,
+ * not a screenshot of a running build.
+ */
+export const NativeScreen = z.object({
+  /** Route the flow navigates to. The first screen should claim "/". */
+  path: z.string().regex(/^\//, "a screen path starts with /"),
+  title: z.string().min(1),
+  /** Source file it came from, so a person can check the rendition. */
+  source: z.string(),
+  html: z.string().min(40),
+});
+export type NativeScreen = z.infer<typeof NativeScreen>;
+
+export const NativeScreens = z.object({
+  screens: z.array(NativeScreen).min(1).max(8),
+});
+export type NativeScreens = z.infer<typeof NativeScreens>;
+
+export interface RenderScreensInput {
+  platform: "macos" | "ios" | "android";
+  files: Array<{ path: string; text: string }>;
+}
+
 /* ------------------------------------------------------------------ *
  * Client
  * ------------------------------------------------------------------ */
@@ -80,6 +118,8 @@ export interface LlmClient {
   extractUseCases(digest: RepoDigest): Promise<UseCaseDraft[]>;
   generateFlow(digest: RepoDigest, useCase: UseCase): Promise<Flow>;
   writeScript(digest: RepoDigest, useCase: UseCase, flow: Flow): Promise<ScriptDraft>;
+  /** Render a native app's declared screens as HTML the capture can drive. */
+  renderScreens(input: RenderScreensInput): Promise<NativeScreen[]>;
   repairStep(input: {
     digest: RepoDigest;
     flow: Flow;

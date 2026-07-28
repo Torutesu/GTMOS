@@ -1,5 +1,19 @@
 import { Flow, type LlmUsage, type UseCase } from "@sdv/core";
-import type { LlmClient, RepoDigest, ScriptDraft, SpecAction, SpecInfo, UseCaseDraft } from "./types.ts";
+import type {
+  LlmClient,
+  NativeScreen,
+  RenderScreensInput,
+  RepoDigest,
+  ScriptDraft,
+  SpecAction,
+  SpecInfo,
+  UseCaseDraft,
+} from "./types.ts";
+import {
+  renderScreensDeterministically,
+  screenToSteps,
+  screensToUseCases,
+} from "./native.ts";
 
 /**
  * A deterministic stand-in for the model.
@@ -17,7 +31,7 @@ export function createMockLlm(): LlmClient {
     usage: (): LlmUsage[] => [],
 
     /**
-     * Candidates come from specs and from nowhere else.
+     * Candidates come from specs, or from screens we rendered ourselves.
      *
      * There used to be a fallback that made candidates out of route names when
      * a repository had no tests. It produced one generic entry on every real
@@ -25,8 +39,13 @@ export function createMockLlm(): LlmClient {
      * meant the product had two qualities of output with no way for anyone to
      * tell which one they were getting. A run without specs is now refused
      * before it starts.
+     *
+     * Rendered screens are the one other thing that clears that bar, and for
+     * the same reason: the controls named in the candidate are on the page
+     * because we put them there, not because we guessed.
      */
     async extractUseCases(digest: RepoDigest): Promise<UseCaseDraft[]> {
+      if (digest.screens.length > 0) return screensToUseCases(digest.screens);
       return digest.specs
         .filter((s) => !s.isSetup && s.actions.length > 0)
         .map((spec) => specToUseCase(spec))
@@ -34,8 +53,13 @@ export function createMockLlm(): LlmClient {
     },
 
     async generateFlow(digest: RepoDigest, useCase: UseCase): Promise<Flow> {
+      const screen = digest.screens.find((s) => s.path === useCase.entryRoute);
       const spec = digest.specs.find((s) => s.file === useCase.origin && !s.isSetup);
-      const steps = spec ? specToSteps(spec) : routeSteps(useCase.entryRoute);
+      const steps = screen
+        ? screenToSteps(screen)
+        : spec
+          ? specToSteps(spec)
+          : routeSteps(useCase.entryRoute);
       return Flow.parse({
         schemaVersion: 1,
         useCaseId: useCase.id,
@@ -53,6 +77,18 @@ export function createMockLlm(): LlmClient {
           (s) => s.caption ?? { en: describe(s), ja: describeJa(s) },
         ),
       };
+    },
+
+    /**
+     * Render a native app's screens from what its source declares.
+     *
+     * Deterministic on purpose: the labels are already in the source, so
+     * pulling them out in order gives the app's real words in the app's real
+     * order without a network call. The live path lays them out properly;
+     * this gets the content right and stacks it.
+     */
+    async renderScreens(input: RenderScreensInput): Promise<NativeScreen[]> {
+      return renderScreensDeterministically(input);
     },
 
     async repairStep(): Promise<null> {

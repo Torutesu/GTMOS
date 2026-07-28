@@ -21,6 +21,14 @@ export {
   findRendererOutput,
   type BridgeSurface,
 } from "./stages/bridge.ts";
+export {
+  renderNative,
+  readRendered,
+  collectUiSource,
+  isNativePlatform,
+  serveNativeCommand,
+  type NativeScreen as RenderedScreen,
+} from "./stages/render-native.ts";
 export { buildStandalone } from "./standalone.ts";
 export { publish, badgeSvg } from "./stages/publish.ts";
 export { diff, pixelDiff, DIFF_TUNING } from "./stages/diff.ts";

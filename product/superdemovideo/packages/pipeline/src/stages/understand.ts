@@ -1,6 +1,6 @@
 import { id, type RepoProfile, type UseCase } from "@sdv/core";
 import { insertUseCases } from "@sdv/db";
-import type { RepoDigest } from "@sdv/llm";
+import type { NativeScreen, RepoDigest } from "@sdv/llm";
 import type { StageContext } from "../context.ts";
 import { buildDigest } from "../digest.ts";
 
@@ -21,20 +21,25 @@ export async function understand(
   ctx: StageContext,
   srcDir: string,
   profile: RepoProfile,
+  screens: NativeScreen[] = [],
 ): Promise<UnderstandResult> {
   ctx.progress({ stage: "understand", status: "running", message: "Reading the repository" });
-  const digest = await buildDigest(srcDir, profile);
+  const digest = await buildDigest(srcDir, profile, screens);
 
   ctx.log.info("digest built", {
     routes: digest.routes.length,
     specs: digest.specs.length,
+    screens: digest.screens.length,
     approxTokens: digest.approxTokens,
   });
 
   ctx.progress({
     stage: "understand",
     status: "running",
-    message: `Proposing demos from ${digest.specs.length} tests and ${digest.routes.length} routes`,
+    message:
+      screens.length > 0
+        ? `Proposing demos from ${screens.length} rendered screens`
+        : `Proposing demos from ${digest.specs.length} tests and ${digest.routes.length} routes`,
   });
 
   const drafts = await ctx.llm.extractUseCases(digest);

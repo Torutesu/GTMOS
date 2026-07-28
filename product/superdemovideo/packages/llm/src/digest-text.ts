@@ -1,3 +1,4 @@
+import { screenControls } from "./native.ts";
 import type { RepoDigest } from "./types.ts";
 
 /**
@@ -14,6 +15,25 @@ export function renderDigest(d: RepoDigest): string {
   if (d.description) lines.push(d.description);
   lines.push(`Framework: ${d.framework}`);
   lines.push("");
+
+  if (d.screens.length) {
+    // Listed before anything else and given the controls verbatim: these pages
+    // are what the capture will drive, so a journey proposed against them is
+    // the only kind that cannot reference a control that will not be there.
+    lines.push("## Screens (already rendered as HTML and being served)");
+    lines.push(
+      "This is a native app. Its screens were rendered from the source that " +
+        "declares them and are served at the paths below. A demo moves between " +
+        "these paths and touches only the controls listed under each one.",
+    );
+    for (const s of d.screens) {
+      lines.push(`\n### ${s.path} — ${s.title}  (${s.source})`);
+      for (const c of screenControls(s.html)) {
+        lines.push(`  - ${c.kind}: ${c.label}${c.href ? ` → ${c.href}` : ""}`);
+      }
+    }
+    lines.push("");
+  }
 
   if (d.routes.length) {
     lines.push("## Routes");

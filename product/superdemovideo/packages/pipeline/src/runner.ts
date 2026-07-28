@@ -6,7 +6,6 @@ import {
   Flow,
   SdvError,
   toSdvError,
-  type Platform,
   type RepoProfile,
   type Stage,
   type UseCase,
@@ -38,6 +37,7 @@ import { capture, type CaptureOutcome } from "./stages/capture.ts";
 import { compose } from "./stages/compose.ts";
 import { emit } from "./stages/emit.ts";
 import { diff } from "./stages/diff.ts";
+import { isNativePlatform, renderNative } from "./stages/render-native.ts";
 
 export const TEMPLATES_DIR = fileURLToPath(new URL("../../../templates", import.meta.url));
 const LAUNCH_TEMPLATE = join(TEMPLATES_DIR, "launch");
@@ -80,8 +80,26 @@ export async function analyse(ctx: StageContext): Promise<AnalyseResult> {
   await setRepoProfile(ctx.db, ctx.projectId, profile);
   requireE2e(profile);
 
+  // For a native app, rendering the screens is not a build step that happens
+  // later — it is how we find out what the app is. The candidates are the
+  // screens, so they have to exist before anything can be proposed. What is
+  // written here is what the production phase serves, unchanged.
+  const platform = profile.platform;
+  const screens = isNativePlatform(platform)
+    ? (
+        await timed(ctx, "build", () =>
+          renderNative(ctx, {
+            srcDir: profile.appRoot ? join(paths.src, profile.appRoot) : paths.src,
+            platform,
+            outDir: join(paths.app, "screens"),
+            port: profile.build.port,
+          }),
+        )
+      ).screens
+    : [];
+
   const { digest, useCases } = await timed(ctx, "understand", () =>
-    understand(ctx, paths.src, profile),
+    understand(ctx, paths.src, profile, screens),
   );
 
   // Carry the digest into the production phase: it is the expensive input and
@@ -321,22 +339,22 @@ export async function regenerate(
  * Refusing here rather than later is deliberate: the alternative is an eight
  * minute run that ends in a demo nobody wants.
  */
-/** Platforms we can currently obtain HTML for. */
-const FILMABLE_PLATFORMS = new Set<Platform>(["web", "electron"]);
-
+/**
+ * Where the requirement applies.
+ *
+ * Every demo is filmed as HTML, and every platform now has a way to reach it: a
+ * web app serves its own, an Electron app's renderer is HTML already behind a
+ * bridge we stand in for, and a native app's screens are rendered from the
+ * source that declares them.
+ *
+ * That last route is also why the requirement stops there. Its reason is that
+ * we do not know a web app's journeys and cannot trust selectors we guessed at.
+ * Neither holds for a native app: we wrote the markup, we chose the roles and
+ * the labels, and the screens are the journeys. Demanding a Playwright suite
+ * would be asking for evidence we already have.
+ */
 export function requireE2e(profile: RepoProfile): void {
-  // Every demo is filmed as HTML, so what matters is whether we have a way to
-  // get HTML for this kind of app. A web app serves its own; an Electron app's
-  // renderer is HTML already, behind a bridge we stand in for. Native apps
-  // have none until the render stage exists, and until then saying so is more
-  // use than reporting a missing test suite — someone told to write specs
-  // would write them and still have nothing filmable.
-  if (!FILMABLE_PLATFORMS.has(profile.platform)) {
-    throw new SdvError(
-      "SDV-E012",
-      `this is a ${profile.platform} app; rendering its screens as HTML is not implemented yet`,
-    );
-  }
+  if (isNativePlatform(profile.platform)) return;
 
   if (!profile.e2e) {
     throw new SdvError(

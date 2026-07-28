@@ -8,6 +8,28 @@ steps moved.
 The product is not "a video". It is a video that is **still true**, which is
 the part nobody maintains by hand.
 
+## What it can point at
+
+Every demo is filmed as HTML in a browser, whatever the app is. The platform
+decides one thing only: where that HTML comes from.
+
+| Platform | Where the HTML comes from | End-to-end tests |
+| --- | --- | --- |
+| Web | The app serves its own | **Required** |
+| Electron | The renderer is HTML already. The preload's `contextBridge` calls are read and a stand-in `window.api` is injected, so the page runs without a main process | **Required** |
+| macOS, iOS | Rendered from the source that declares the screens — SwiftUI, UIKit | Not needed |
+| Android | Rendered from Jetpack Compose or Android XML | Not needed |
+
+A native app is not asked for specs because the reason for the requirement
+does not apply to it: we render its screens ourselves, so the markup, the roles
+and the labels are ours, and the screens are the journeys. There is no guessed
+selector to prove.
+
+What that costs: a rendered screen is **a rendition of what the source says**,
+not a screenshot of a running build. A control that only appears at runtime
+will not be there. In exchange, no Xcode, no Gradle, no simulator and no
+device — and the rest of the pipeline does not change at all.
+
 ## Requirements
 
 - Node 22+
@@ -97,8 +119,9 @@ than by discipline.
 `pnpm accept` is the definition of "M1 works": it drives the product over HTTP
 against the golden fixture, then asserts on the files that come out — codec,
 dimensions, frame rate, duration, caption cues, player size, and a real
-Chromium clicking through the emitted demo to its last step. It needs no
-network and no API key.
+Chromium clicking through the emitted demo to its last step. Its last step does
+the same against a SwiftUI project, which has no package.json, no dev server
+and no test suite. It needs no network and no API key.
 
 ## Configuration
 
@@ -128,6 +151,7 @@ packages/api        Fastify, SSE, the worker
 packages/cli        `sdv`
 apps/web            the SPA
 fixtures/demo-app   Taskloop — the golden fixture, deliberately outside the workspace
+fixtures/native-app the same app as SwiftUI: no package.json, no server, no specs
 templates/launch    skeleton, theme, prompts
 scripts             doctor, accept
 ```
@@ -150,16 +174,13 @@ by the capture executor; nothing in it is ever evaluated.
   visible defect in the deliverable.
 - Short cuts (15s, 6s) are not generated yet. See
   `docs/products/superdemovideo-video-craft.md`.
-- **The interactive demo takes its colour scheme from whoever is looking at
-  it.** The replay iframe evaluates `prefers-color-scheme` against the
-  viewer's machine, so an app filmed in light mode replays dark for a dark-mode
-  visitor while the video stays light. The two disagree, which is the one thing
-  this product is supposed to guarantee they never do. The fix is to flatten
-  the captured `@media (prefers-color-scheme)` blocks against the scheme the
-  capture actually used.
-- **It has only ever run against a repository we wrote.** The golden fixture
-  has clean routes, committed auth state and role-based selectors — the best
-  case. "Point it at a repository" is not yet a tested claim.
+- **It has only ever produced a video from a repository we wrote.** Both
+  fixtures — the web one and the SwiftUI one — have clean routes, committed
+  auth state and role-based selectors, which is the best case by construction.
+  Nine real repositories have been through analysis and none has reached a
+  video. "Point it at a repository" is not yet a tested claim.
+- A rendered native screen shows what the source declares and nothing else. No
+  runtime state, no server data, no platform chrome beyond a device frame.
 
 ## Where the design lives
 

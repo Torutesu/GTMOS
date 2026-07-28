@@ -135,6 +135,8 @@ export const SignalSource = z.enum([
   "readme",
   "changelog",
   "feature-flag",
+  /** A screen declared by a native app's interface source. */
+  "screen",
 ]);
 export type SignalSource = z.infer<typeof SignalSource>;
 

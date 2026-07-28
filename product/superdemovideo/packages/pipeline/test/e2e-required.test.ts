@@ -81,6 +81,7 @@ describe("where candidates come from", () => {
     analyticsEvents: [],
     changelog: null,
     packageScripts: {},
+    screens: [],
     approxTokens: 0,
   });
 
@@ -118,40 +119,19 @@ describe("where candidates come from", () => {
   });
 });
 
-describe("platforms we cannot get HTML for yet", () => {
+describe("what the test requirement applies to", () => {
   const on = (platform: RepoProfile["platform"], e2e: RepoProfile["e2e"] = null): RepoProfile => ({
     ...profile(e2e),
     platform,
   });
 
-  it("refuses a native app for being native, not for missing tests", () => {
-    // Someone told to add Playwright specs would write them and still have
-    // nothing filmable: there is no HTML to point a browser at.
+  it("does not ask a native app for specs it has no use for", () => {
+    // The requirement exists because we cannot know a web app's journeys and
+    // cannot trust selectors we guessed at. Neither holds here: the screens are
+    // rendered by us, from the source that declares them, so the markup, the
+    // roles and the labels are ours and the screens are the journeys.
     for (const platform of ["macos", "ios", "android"] as const) {
-      try {
-        requireE2e(on(platform));
-        throw new Error(`should have refused ${platform}`);
-      } catch (e) {
-        expect((e as SdvError).code, platform).toBe("SDV-E012");
-      }
-    }
-  });
-
-  it("refuses a native app even when it does have a test suite", () => {
-    // The tests are not the problem. Having no HTML is.
-    try {
-      requireE2e(
-        on("ios", {
-          kind: "playwright",
-          configPath: "playwright.config.ts",
-          testDir: "e2e",
-          specPaths: ["e2e/a.spec.ts"],
-          storageStatePath: null,
-        }),
-      );
-      throw new Error("should have refused");
-    } catch (e) {
-      expect((e as SdvError).code).toBe("SDV-E012");
+      expect(() => requireE2e(on(platform)), platform).not.toThrow();
     }
   });
 

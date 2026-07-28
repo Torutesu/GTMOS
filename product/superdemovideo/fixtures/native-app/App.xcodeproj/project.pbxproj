@@ -1,0 +1,3 @@
+// !$*UTF8*$!
+// A stub: detection looks for the project, it does not open it.
+{ archiveVersion = 1; objectVersion = 56; objects = { }; rootObject = ""; }

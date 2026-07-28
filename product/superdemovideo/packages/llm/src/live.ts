@@ -3,13 +3,21 @@ import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { Flow, Step, type LlmUsage, type UseCase } from "@sdv/core";
 import {
+  NativeScreens,
   ScriptDraft,
   UseCaseList,
   type LlmClient,
   type RepoDigest,
+  type NativeScreen,
   type UseCaseDraft,
 } from "./types.ts";
-import { FLOW_SCHEMA, SCRIPT_SCHEMA, STEP_SCHEMA, USE_CASE_LIST_SCHEMA } from "./json-schema.ts";
+import {
+  FLOW_SCHEMA,
+  NATIVE_SCREENS_SCHEMA,
+  SCRIPT_SCHEMA,
+  STEP_SCHEMA,
+  USE_CASE_LIST_SCHEMA,
+} from "./json-schema.ts";
 import { renderDigest } from "./digest-text.ts";
 
 const MODEL = "claude-opus-5";
@@ -126,6 +134,44 @@ export function createLiveLlm(opts: LiveOptions): LlmClient {
         effort: "medium",
       });
       return ScriptDraft.parse(raw);
+    },
+
+    /**
+     * Render a native app's screens as HTML.
+     *
+     * The one call that does not take the repository digest: a screen is
+     * rendered from the file that declares it, and the rest of the repository
+     * would only be noise. Effort is high because layout judgement is the
+     * whole value here — anyone can list the labels, and the deterministic
+     * path already does.
+     */
+    async renderScreens({ platform, files }): Promise<NativeScreen[]> {
+      const system = await prompt("render-native");
+      const res = await client.messages.create({
+        model: MODEL,
+        max_tokens: 16000,
+        output_config: {
+          effort: "high",
+          format: { type: "json_schema", schema: NATIVE_SCREENS_SCHEMA as never },
+        },
+        system: [{ type: "text", text: system }],
+        messages: [
+          {
+            role: "user",
+            content:
+              `Platform: ${platform}\n\n` +
+              files
+                .map((f) => `--- ${f.path} ---\n${f.text}`)
+                .join("\n\n") +
+              "\n\nRender the screens these files declare. At most eight, most " +
+              "important first, and the first one takes the path \"/\".",
+          },
+        ],
+      });
+      record(usage, "render-native", res.usage);
+      const text = res.content.find((b) => b.type === "text");
+      if (!text || text.type !== "text") throw new Error("render-native: no text block");
+      return NativeScreens.parse(JSON.parse(text.text)).screens;
     },
 
     async repairStep({ digest, flow, stepIndex, domExcerpt }) {

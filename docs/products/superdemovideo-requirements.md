@@ -49,13 +49,24 @@
 
 ### v1.5
 
-- **macOS アプリ対応**(XCUITest + Accessibility ツリー。SHOGUN の技術資産を転用)
 - デモ分析(視聴・完了・CTA)
 
 ### v2
 
-- iOS / Android(Maestro)
 - ブランチ型インタラクティブデモ、パーソナライズ、翻訳
+
+### プラットフォーム対応(前倒しで実装済み)
+
+当初は macOS を XCUITest、iOS / Android を Maestro で撮る想定だったが、
+**どのアプリも HTML にしてからブラウザで撮る**方式に変えた。理由は 3 つ。
+
+1. 実機・シミュレータ・Xcode / Gradle のツールチェーンが一切要らない
+2. 撮影・合成・デモ書き出しの経路が Web と完全に同じになる(分岐が 1 箇所で済む)
+3. SwiftUI・Compose・Android XML は**画面をラベル付きの階層として宣言している**ので、
+   HTML と同じ形をしている。訳せる
+
+代償は「実機のスクリーンショットではない」こと。実行時にしか現れない要素は出ない。
+`fixtures/native-app` で `pnpm accept` が経路全体を検証している。
 
 ### 非スコープ(明示)
 
@@ -197,8 +208,8 @@ Ingest → Detect → Build → Seed → Understand → Drive → Capture → Co
 | F6-4 | ビューポート:デスクトップ(1440×900)+ モバイル(390×844)の 2 種を 1 Run で取得 | [M] |
 | F6-5 | 待機の自動安定化(ネットワークアイドル・アニメーション完了を待ってから撮る。ガタつきを出さない) | [M] |
 | F6-6 | 撮影に失敗したステップの特定と、そのステップだけの再実行 | [M] |
-| F6-7 | macOS:XCUITest 駆動 + Accessibility ツリーを構造として取得(v1.5) | [S] |
-| F6-8 | iOS / Android:Maestro フロー生成・実行(v2) | [C] |
+| F6-7 | **Electron**:renderer の HTML を配信し、preload の `contextBridge` が渡すはずの API を読み取って身代わりを注入する(実装済み) | [M] |
+| F6-8 | **macOS / iOS / Android**:画面を宣言しているソース(SwiftUI・UIKit・Compose・Android XML)から HTML を生成して撮る(実装済み) | [M] |
 
 ### F7. Compose & Emit(動画)
 

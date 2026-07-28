@@ -82,7 +82,15 @@ export const USE_CASE_LIST_SCHEMA = {
             minItems: 1,
             items: {
               type: "string",
-              enum: ["e2e-test", "route", "analytics-event", "readme", "changelog", "feature-flag"],
+              enum: [
+                "e2e-test",
+                "route",
+                "analytics-event",
+                "readme",
+                "changelog",
+                "feature-flag",
+                "screen",
+              ],
             },
           },
           origin: { type: ["string", "null"] },
@@ -106,4 +114,34 @@ export const SCRIPT_SCHEMA = {
   },
   required: ["title", "intro", "outro", "captions"],
   additionalProperties: false,
+} as const;
+
+/**
+ * A native app's screens, rendered as HTML.
+ *
+ * `html` is a whole document rather than a fragment: the capture opens it as
+ * a page, and a fragment would have no styling, no title and no viewport.
+ */
+export const NATIVE_SCREENS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["screens"],
+  properties: {
+    screens: {
+      type: "array",
+      minItems: 1,
+      maxItems: 8,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "title", "source", "html"],
+        properties: {
+          path: { type: "string", description: 'Route, starting with "/". The first screen is "/".' },
+          title: { type: "string" },
+          source: { type: "string", description: "The file this screen was declared in." },
+          html: { type: "string", description: "A complete HTML document for this screen." },
+        },
+      },
+    },
+  },
 } as const;

@@ -137,9 +137,28 @@ function PublicationCard({ publication }: { publication: Publication }) {
  * will work, it will just show the product logged out — worth saying plainly
  * for anything whose interesting half is behind a login.
  */
+const NATIVE: Record<string, string> = {
+  macos: "macOS",
+  ios: "iOS",
+  android: "Android",
+};
+
 function E2eRequirement({ profile }: { profile: RepoProfile }) {
   const e2e = profile.e2e;
   const specs = e2e?.specPaths.length ?? 0;
+
+  // A native app is not asked for specs. Its screens are rendered here, from
+  // the source that declares them, so the markup and the labels the demo is
+  // driven by are ours — there is no guessed selector to prove.
+  const native = NATIVE[profile.platform];
+  if (native) {
+    return (
+      <p className="small muted" style={{ margin: 0 }}>
+        A {native} app. Its screens are rendered as HTML from the source that declares
+        them, and the candidates are those screens — no end-to-end tests needed.
+      </p>
+    );
+  }
 
   if (!e2e || specs === 0) {
     return (

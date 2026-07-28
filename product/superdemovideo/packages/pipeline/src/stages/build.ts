@@ -12,6 +12,13 @@ import {
   readBridgeSurface,
   type BridgeSurface,
 } from "./bridge.ts";
+import {
+  isNativePlatform,
+  readRendered,
+  renderNative,
+  serveNativeCommand,
+  type NativePlatform,
+} from "./render-native.ts";
 
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
 const BUILD_TIMEOUT_MS = 10 * 60_000;
@@ -37,6 +44,13 @@ export async function build(ctx: StageContext, profile: RepoProfile): Promise<Bu
 
   await mkdir(paths.logs, { recursive: true });
   const env = placeholderEnv(profile);
+
+  // A native app is never installed or started here. Its screens are rendered
+  // from the source that declares them and served like any static site, which
+  // is what lets seed, capture and everything after them stay as they are.
+  if (isNativePlatform(profile.platform)) {
+    return serveRenderedScreens(ctx, profile.platform, appDir, paths, profile.build.port);
+  }
 
   // ---- install (cache-aware) ------------------------------------------
   const cacheKey = await depsCacheKey(appDir, paths.src);
@@ -162,6 +176,59 @@ export async function build(ctx: StageContext, profile: RepoProfile): Promise<Bu
   }
 
   ctx.log.info("app is up", { baseUrl, cached: restored });
+  return {
+    baseUrl,
+    appDir,
+    process: proc,
+    async stop() {
+      await writeFile(join(paths.logs, "start.log"), proc.output()).catch(() => {});
+      await proc.stop();
+    },
+  };
+}
+
+/**
+ * Render a native app's screens and serve them.
+ *
+ * The same shape as the web path from the caller's side — an address that
+ * answers — so nothing downstream has to know which kind of app this was.
+ */
+async function serveRenderedScreens(
+  ctx: StageContext,
+  platform: NativePlatform,
+  appDir: string,
+  paths: ReturnType<typeof stagePaths>,
+  port: number,
+): Promise<BuiltApp> {
+  const outDir = join(paths.app, "screens");
+
+  // Analysis renders the screens, because for a native app they are what the
+  // candidate list is made of. Finding them here means the person chose from
+  // these exact pages, so they are the ones to film.
+  const existing = await readRendered(outDir);
+  const screens =
+    existing ??
+    (await renderNative(ctx, { srcDir: appDir, platform, outDir, port })).screens;
+
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const proc = ctx.sandbox.start(serveNativeCommand(outDir, port), { cwd: paths.app });
+
+  const up = await waitFor(async () => reachable(baseUrl), {
+    timeoutMs: START_TIMEOUT_MS,
+    intervalMs: 400,
+  });
+  if (!up) {
+    await writeFile(join(paths.logs, "start.log"), proc.output()).catch(() => {});
+    await proc.stop();
+    throw new SdvError("SDV-E022", `the rendered screens did not come up on ${baseUrl}`);
+  }
+
+  ctx.log.info("serving rendered screens", {
+    platform,
+    baseUrl,
+    screens: screens.length,
+    rerendered: existing === null,
+  });
   return {
     baseUrl,
     appDir,
