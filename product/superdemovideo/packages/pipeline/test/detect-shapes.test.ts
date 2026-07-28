@@ -151,3 +151,45 @@ describe("script resolution", () => {
     expect(resolveScript({ a: "npm run b", b: "npm run a" }, "a")).toBeTypeOf("string");
   });
 });
+
+describe("whether the production build is on the path to a demo", () => {
+  it("skips it when the app is served by a dev server", async () => {
+    // reveal.js: `start: vite` compiles on demand, while its build script is
+    // `tsc && vite build` across seven configs — and it fails. Running it
+    // turned a repository that starts in seconds into a failed run.
+    const profile = await detect(
+      await repo({
+        "package.json": {
+          name: "a",
+          scripts: { start: "vite", build: "tsc && vite build && vite build -c other.ts" },
+          devDependencies: { vite: "5.0.0" },
+        },
+        "index.html": "<!doctype html>",
+      }),
+    );
+    expect(profile.build.build).toBeNull();
+    expect(profile.build.port).toBe(5173);
+  });
+
+  it("keeps it when something has to serve the output", async () => {
+    for (const [start, port] of [
+      ["vite preview", 4173],
+      ["next start", 3000],
+    ] as const) {
+      const profile = await detect(
+        await repo({
+          "package.json": {
+            name: "a",
+            scripts: { start, build: "vite build" },
+            devDependencies: { vite: "5.0.0", next: "15.0.0" },
+          },
+          "index.html": "<!doctype html>",
+        }),
+      );
+      expect(profile.build.build, start).not.toBeNull();
+      expect(profile.build.port, start).toBe(port);
+      await rm(dir, { recursive: true, force: true });
+      dir = "";
+    }
+  });
+});

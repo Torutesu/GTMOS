@@ -88,6 +88,46 @@ Taskloop は**こちらが「検出できるように」作った最良ケース
 - install の出力を `ctx.progress` に流す。**10 分の沈黙はハングと見分けがつかない。**
 - install のタイムアウトを 15 分へ。
 
+### 計測そのものが汚染されていた(重要)
+
+install フォールバックを入れて reveal.js を再試験したところ、
+**492 秒かけて npm 内部エラー(`Exit handler never called!`)** で落ちた。
+ところが同じ `npm install` をサンドボックス経由で単独実行すると **4.9 秒で成功**する。
+
+`ps` を見たら答えがあった。**05:48 に開始した `npm install` が 32 分間生き残っていた。**
+それは私が 05:54 に kill した field-test の子プロセスで、
+共有 npm キャッシュ(`/root/.npm`)を掴んだまま動き続けていた。
+
+つまり:
+
+1. **我々のバグ:** `exec` が `detached` なしで spawn していたため、
+   親を kill しても子(とその孫)が残る。`start` は process group を扱っていたが `exec` は扱っていなかった。
+2. **その孤児が後続の計測を全部汚染していた。** しかも症状は
+   「テスト対象リポジトリの install が壊れている」ように見える ── **一番誤解を招く場所に出る。**
+
+修正:
+
+- `exec` も `detached: true` + process group 単位で kill。
+- **このプロセスが起動した子を全部追跡**し、`exit` / `SIGINT` / `SIGTERM` で
+  まとめて始末する。リポジトリのコマンドを走らせっぱなしにする権利は我々に無い。
+- `packages/pipeline/test/sandbox-lifetime.test.ts` が
+  「タイムアウト時に孫プロセスまで死ぬ」ことを実際のプロセスで検証する。
+
+孤児を殺して再計測: **492 秒 → 16.1 秒。** install も通過した。
+
+### dev サーバーなら production build は要らない
+
+16.1 秒の実行で今度は `SDV-E021` になった。reveal.js の build は
+`tsc && vite build && vite build -c ... `(config 7 本)で、これが落ちる。
+
+しかし reveal.js の `start` は `vite` ── **オンデマンドでコンパイルする dev サーバー**で、
+build 成果物を必要としない。**要らないビルドを走らせて、その失敗でデモを作らないのは筋が悪い。**
+
+- `vite preview` / `next start` / `serve` → 成果物を配るので **build 必須**
+- `vite` / `next dev` / `astro dev` / `ng serve` → **build 不要**(`build.build = null` にする)
+
+成果物版が欲しい場合はプロファイル上書きで戻せる。
+
 ### まだ埋まっていない穴
 
 - **候補の質が mock では測れない。** 全リポジトリで「1 候補・spec 由来 0 件」だが、

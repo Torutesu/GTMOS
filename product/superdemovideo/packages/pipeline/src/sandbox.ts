@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { SdvError, redact, tailLines, type ErrorCode } from "@sdv/core";
 
 export interface RunResult {
@@ -71,6 +71,51 @@ function baseEnv(extra: Record<string, string> = {}): Record<string, string> {
   };
 }
 
+/**
+ * Every child this process started, so none of them outlive it.
+ *
+ * A repository command is not ours to leave running. Without this, killing a
+ * run leaves `npm install` behind — it keeps working, keeps holding the
+ * package cache, and the next run mysteriously takes ten times as long and
+ * fails inside npm. That failure looks like a bug in the repository being
+ * tested, which is the worst possible place for it to look like.
+ */
+const live = new Set<ChildProcess>();
+let reaperInstalled = false;
+
+function track(child: ChildProcess): () => void {
+  live.add(child);
+  if (!reaperInstalled) {
+    reaperInstalled = true;
+    const reap = () => {
+      for (const c of live) killGroup(c, "SIGKILL");
+      live.clear();
+    };
+    process.once("exit", reap);
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      process.once(signal, () => {
+        reap();
+        process.exit(130);
+      });
+    }
+  }
+  return () => live.delete(child);
+}
+
+/** Kill the whole process group, falling back to the child alone. */
+function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  try {
+    if (child.pid) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
 export function createSandbox(kind: "local" | "docker"): Sandbox {
   if (kind === "docker") {
     throw new Error(
@@ -86,12 +131,18 @@ function localSandbox(): Sandbox {
 
     exec(command, opts) {
       return new Promise<RunResult>((resolve) => {
+        // Detached so the command gets its own process group. `npm install`
+        // spawns its own children, and killing only the shell leaves them
+        // running: one orphaned install survived half an hour here, holding
+        // the shared package cache and making every later run look broken.
         const child = spawn(command, {
           cwd: opts.cwd,
           env: baseEnv(opts.env),
           shell: "/bin/bash",
           stdio: ["ignore", "pipe", "pipe"],
+          detached: true,
         });
+        const untrack = track(child);
 
         let stdout = "";
         let stderr = "";
@@ -115,15 +166,17 @@ function localSandbox(): Sandbox {
 
         const timer = setTimeout(() => {
           timedOut = true;
-          child.kill("SIGKILL");
+          killGroup(child, "SIGKILL");
         }, opts.timeoutMs);
 
         child.on("close", (code) => {
           clearTimeout(timer);
+          untrack();
           resolve({ code, stdout, stderr, combined, timedOut });
         });
         child.on("error", (err) => {
           clearTimeout(timer);
+          untrack();
           combined += `\n${err.message}`;
           resolve({ code: -1, stdout, stderr, combined, timedOut });
         });
@@ -138,6 +191,8 @@ function localSandbox(): Sandbox {
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
       });
+      const untrack = track(child);
+      child.on("close", untrack);
 
       let out = "";
       const collect = (b: Buffer) => {

@@ -52,6 +52,11 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
   else if (portSource === "command") confidence += 0.15;
   else confidence -= 0.15;
 
+  // A dev server compiles on demand, so the production build is not on the
+  // path to a demo — only a way for one to fail. Someone who wants the built
+  // output can put the command back through the profile override.
+  const needsBuild = !startsDevServer(startScript ? resolveScript(scripts, startScript) : "");
+
   const profile: RepoProfile = {
     framework,
     packageManager,
@@ -59,7 +64,7 @@ export async function detect(srcDir: string, appRootHint = ""): Promise<RepoProf
     appRoot,
     build: {
       install: installCommand(packageManager, Boolean(await lockfile(dir, srcDir, packageManager))),
-      build: buildScript ? runCommand(packageManager, buildScript) : null,
+      build: buildScript && needsBuild ? runCommand(packageManager, buildScript) : null,
       start: startScript
         ? runCommand(packageManager, startScript)
         : defaultStart(framework, port),
@@ -225,6 +230,26 @@ const COMMAND_PORTS: Array<[RegExp, number]> = [
 ];
 
 export type PortSource = "flag" | "config" | "command" | "default";
+
+/**
+ * Commands that compile on demand rather than serve a build.
+ *
+ * `vite preview` and `next start` need the build to have run; `vite` and
+ * `next dev` do not. Running a production build anyway is not merely wasted
+ * time — reveal.js's build script is `tsc && vite build && …` across seven
+ * configs, and it fails, which turned a repository whose dev server starts in
+ * seconds into a failed run. The build is only required when something is
+ * going to serve its output.
+ */
+const DEV_SERVER =
+  /\b(vite|next\s+dev|astro\s+dev|nuxt\s+dev|remix\s+dev|svelte-kit\s+dev|react-scripts\s+start|ng\s+serve)\b/;
+
+export function startsDevServer(command: string): boolean {
+  if (/\b(vite\s+preview|next\s+start|astro\s+preview|nuxt\s+start|serve|http-server)\b/.test(command)) {
+    return false;
+  }
+  return DEV_SERVER.test(command);
+}
 
 /**
  * Follow `npm run x` chains to the command that actually runs.
