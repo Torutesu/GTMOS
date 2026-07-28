@@ -75,6 +75,7 @@ stale one.
 | `poster.png` | The first frame that shows the product — never a title card. |
 | `captions.en.srt`, `captions.ja.srt` | Sidecar subtitles. English is also burned in. |
 | `demo/` | `index.html` + `demo.json` + a 3KB player. Clickable, self-contained. |
+| `sdv export <run>` | The same demo folded into **one HTML file**. Opens from a download or an attachment; makes no network requests at all. |
 
 The video and the interactive demo come from **one** capture pass — pixels,
 DOM and target boxes recorded together — so they agree by construction rather
@@ -149,6 +150,16 @@ by the capture executor; nothing in it is ever evaluated.
   visible defect in the deliverable.
 - Short cuts (15s, 6s) are not generated yet. See
   `docs/products/superdemovideo-video-craft.md`.
+- **The interactive demo takes its colour scheme from whoever is looking at
+  it.** The replay iframe evaluates `prefers-color-scheme` against the
+  viewer's machine, so an app filmed in light mode replays dark for a dark-mode
+  visitor while the video stays light. The two disagree, which is the one thing
+  this product is supposed to guarantee they never do. The fix is to flatten
+  the captured `@media (prefers-color-scheme)` blocks against the scheme the
+  capture actually used.
+- **It has only ever run against a repository we wrote.** The golden fixture
+  has clean routes, committed auth state and role-based selectors — the best
+  case. "Point it at a repository" is not yet a tested claim.
 
 ## Where the design lives
 

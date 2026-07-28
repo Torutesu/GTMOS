@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
-import { resolve } from "node:path";
-import { basename } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { basename, resolve } from "node:path";
 import { apiClient, ApiError } from "./client.ts";
 
 const USAGE = `sdv — Superdemovideo
@@ -10,6 +10,7 @@ const USAGE = `sdv — Superdemovideo
   sdv status <runId> [--follow]    stage progress; --follow streams it live
   sdv select <runId> <index>       pick a candidate demo (1-based) and start filming
   sdv regen <projectId>            re-film the existing demo against today's code
+  sdv export <runId> [--out F]     write the demo as one self-contained HTML file
   sdv publish <runId>              make a finished run the live demo
   sdv open <slug>                  print the public URLs for a published demo
   sdv projects                     list projects
@@ -37,6 +38,8 @@ async function main(argv: string[]): Promise<number> {
       return select(rest);
     case "regen":
       return regen(rest);
+    case "export":
+      return exportDemo(rest);
     case "publish":
       return publish(rest);
     case "open":
@@ -187,6 +190,30 @@ async function regen(args: string[]): Promise<number> {
   })) as Json)["run"];
   console.log(`run  ${run.id}  (${run.status})`);
   console.log(`\nWatch it: sdv status ${run.id} --follow`);
+  return 0;
+}
+
+async function exportDemo(args: string[]): Promise<number> {
+  const runId = args.find((a) => !a.startsWith("--"));
+  if (!runId) {
+    console.error("Usage: sdv export <runId> [--out demo.html]");
+    return 2;
+  }
+  const api = apiClient();
+  const res = await fetch(`${api.baseUrl}/v1/runs/${runId}/standalone.html`, {
+    headers: process.env["SDV_TOKEN"]
+      ? { authorization: `Bearer ${process.env["SDV_TOKEN"]}` }
+      : {},
+  });
+  if (!res.ok) {
+    console.error(`export failed: ${res.status} ${await res.text()}`);
+    return 1;
+  }
+  const out = flag(args, "--out") ?? `demo-${runId}.html`;
+  const html = await res.text();
+  await writeFile(out, html);
+  console.log(`${out}  ${(Buffer.byteLength(html) / 1024 / 1024).toFixed(1)}MB`);
+  console.log("Open it directly — it needs no server and makes no requests.");
   return 0;
 }
 

@@ -21,7 +21,7 @@ import {
   setRepoProfile,
   setRunStatus,
 } from "@sdv/db";
-import { badgeSvg } from "@sdv/pipeline";
+import { badgeSvg, buildStandalone } from "@sdv/pipeline";
 import { EventBus } from "./events.ts";
 import { isFile, safeJoin, sendFile } from "./http.ts";
 import { startWorker, type Worker } from "./worker.ts";
@@ -235,6 +235,25 @@ export async function startServer(rt: Runtime, opts: ServerOptions = {}): Promis
       if (path) return sendFile(reply, path);
     }
     return reply.code(404).send({ error: "not found" });
+  });
+
+  /**
+   * The demo as one file.
+   *
+   * Everything inlined, nothing to serve. This is what you attach to a message
+   * when the point is for someone to click it now, not to set up hosting.
+   */
+  app.get("/v1/runs/:id/standalone.html", async (req, reply) => {
+    const artifacts = await listArtifacts(rt.db, param(req, "id"));
+    const demo = artifacts.find((a) => a.kind === "demo");
+    const dir = (demo?.files as Record<string, string> | undefined)?.["demoDir"];
+    if (!dir) return reply.code(404).send({ error: "this run has no interactive demo" });
+
+    const html = await buildStandalone(dir);
+    return reply
+      .header("content-type", "text/html; charset=utf-8")
+      .header("content-disposition", `attachment; filename="demo-${param(req, "id")}.html"`)
+      .send(html);
   });
 
   /* ------------------------------- publishing ----------------------------- */

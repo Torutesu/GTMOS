@@ -116,15 +116,41 @@ export async function build(ctx: StageContext, profile: RepoProfile): Promise<Bu
   };
 }
 
-/** Placeholder values only — a build never receives a real secret. */
+/**
+ * Placeholder values only — a build never receives a real secret.
+ *
+ * Some of these end up on screen. A workspace name or brand string gets
+ * rendered into the page, filmed, and shipped to a customer's landing page,
+ * so `sdv-placeholder-vite-workspace-name` in the middle of a sentence is a
+ * visible defect in the deliverable. Keys that read like display copy get a
+ * plausible value; everything else keeps the obvious marker, because a token
+ * or a URL that shows up in the frame is a bug worth seeing.
+ */
 function placeholderEnv(profile: RepoProfile): Record<string, string> {
   const env: Record<string, string> = {};
   for (const req of profile.env) {
     if (req.strategy === "skip") continue;
-    env[req.key] = `sdv-placeholder-${req.key.toLowerCase().replace(/_/g, "-")}`;
+    env[req.key] = placeholderFor(req.key);
   }
   if (profile.nodeVersion) env["SDV_NODE_VERSION"] = profile.nodeVersion;
   return env;
+}
+
+const DISPLAY_VALUES: Array<[RegExp, string]> = [
+  [/(WORKSPACE|ORG|COMPANY|TEAM|TENANT|BRAND|PRODUCT|SITE|APP)_?(NAME|TITLE)?$/, "Northwind"],
+  [/(SUPPORT|CONTACT|FROM|REPLY_TO)_?EMAIL$/, "hello@northwind.design"],
+  [/(TAGLINE|DESCRIPTION|SUBTITLE)$/, "Work that moves"],
+  [/CURRENCY$/, "USD"],
+  [/LOCALE$/, "en-US"],
+];
+
+export function placeholderFor(key: string): string {
+  const upper = key.toUpperCase();
+  for (const [pattern, value] of DISPLAY_VALUES) {
+    if (pattern.test(upper)) return value;
+  }
+  if (/^(NEXT_PUBLIC_|VITE_|PUBLIC_)?[A-Z_]*URL$/.test(upper)) return "https://example.com";
+  return `sdv-placeholder-${key.toLowerCase().replace(/_/g, "-")}`;
 }
 
 async function depsCacheKey(appDir: string, srcRoot: string): Promise<string | null> {

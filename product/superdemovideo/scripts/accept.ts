@@ -198,6 +198,24 @@ async function main(): Promise<void> {
       blocked.length === 0,
       `the replayed page loaded every asset it needs${blocked.length ? ` (blocked: ${blocked[0]})` : ""}`,
     );
+
+    // The single-file export is the version that leaves the machine.
+    const exported = await fetch(`${api}/v1/runs/${runId}/standalone.html`);
+    assert(exported.status === 200, "the demo exports as one file");
+    const single = join(rt!.cfg.workDir, "standalone.html");
+    await writeFile(single, await exported.text());
+
+    const offline = await clickThroughDemo(`file://${single}`, manifest.steps.length, {
+      countExternal: true,
+    });
+    assert(
+      offline.reached === manifest.steps.length - 1,
+      `…and clicks through from a file:// URL (reached ${offline.reached + 1})`,
+    );
+    assert(
+      offline.external === 0,
+      `…making no network requests at all (${offline.external} attempted)`,
+    );
   });
 
   /* 9 ------------------------------------------------------------------- */
@@ -445,13 +463,23 @@ async function ffprobe(
 async function clickThroughDemo(
   demoUrl: string,
   expectedSteps: number,
-): Promise<{ reached: number; blocked: string[] }> {
+  opts: { countExternal?: boolean } = {},
+): Promise<{ reached: number; blocked: string[]; external: number }> {
   const { chromium } = await import("playwright-core");
   const executablePath = await findChromium();
   const browser = await chromium.launch({ executablePath: executablePath ?? undefined });
   const blocked: string[] = [];
+  let external = 0;
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    if (opts.countExternal) {
+      page.on("request", (r) => {
+        const url = r.url();
+        if (!url.startsWith("file:") && !url.startsWith("data:") && !url.startsWith("about:")) {
+          external++;
+        }
+      });
+    }
     page.on("console", (m) => {
       if (m.type() !== "error") return;
       const text = m.text();
@@ -478,7 +506,7 @@ async function clickThroughDemo(
 
     const current = await page.locator('.sdv-dot[aria-current="true"]').first();
     const label = (await current.getAttribute("aria-label")) ?? "Step 1";
-    return { reached: Number(label.replace(/\D/g, "")) - 1, blocked };
+    return { reached: Number(label.replace(/\D/g, "")) - 1, blocked, external };
   } finally {
     await browser.close();
   }

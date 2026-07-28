@@ -162,6 +162,17 @@ class Player {
     window.addEventListener("resize", () => this.fit());
   }
 
+  /**
+   * Where a bundled file actually lives.
+   *
+   * Paths in the manifest are normally relative to it, but a single-file
+   * export inlines everything as `data:` URIs — and prefixing one of those
+   * with a directory turns a working demo into a page of broken images.
+   */
+  private url(path: string): string {
+    return /^(data:|blob:|https?:|\/)/.test(path) ? path : `${this.baseUrl}/${path}`;
+  }
+
   private async show(index: number): Promise<void> {
     const steps = this.manifest.steps;
     if (index < 0 || index >= steps.length) return;
@@ -176,7 +187,7 @@ class Player {
     } else {
       const img = document.createElement("img");
       img.className = "sdv-shot";
-      img.src = `${this.baseUrl}/${step.screenshot}`;
+      img.src = this.url(step.screenshot);
       img.alt = step.caption ? step.caption[this.lang] : `Step ${index + 1}`;
       this.scaler.appendChild(img);
     }
@@ -247,11 +258,11 @@ class Player {
     // replacing the short one first would leave the long one unmatched.
     const entries = Object.entries(assets).sort((a, b) => b[0].length - a[0].length);
     for (const [original, local] of entries) {
-      html = html.split(original).join(`${this.baseUrl}/${local}`);
+      html = html.split(original).join(this.url(local));
     }
     let styles = snap.styles.join("\n");
     for (const [original, local] of entries) {
-      styles = styles.split(original).join(`${this.baseUrl}/${local}`);
+      styles = styles.split(original).join(this.url(local));
     }
     return `<!doctype html><html><head><meta charset="utf-8">
 <base target="_blank">
@@ -265,7 +276,7 @@ class Player {
     const cached = this.domCache.get(index);
     if (cached) return cached;
     try {
-      const res = await fetch(`${this.baseUrl}/${path}`);
+      const res = await fetch(this.url(path));
       if (!res.ok) return null;
       const snap = (await res.json()) as DomSnapshot;
       this.domCache.set(index, snap);
@@ -334,6 +345,17 @@ function stripHtmlTag(html: string): string {
 async function mount(root: HTMLElement): Promise<void> {
   const src = root.getAttribute("data-demo");
   if (!src) return;
+
+  // A `#id` reference reads the manifest out of the page itself, which is what
+  // lets a single-file export work from a file:// URL or an email attachment
+  // where there is nothing to fetch from.
+  if (src.startsWith("#")) {
+    const holder = document.getElementById(src.slice(1));
+    if (!holder?.textContent) return;
+    new Player(root, JSON.parse(holder.textContent) as DemoManifest, "");
+    return;
+  }
+
   const baseUrl = src.replace(/\/[^/]*$/, "");
   const res = await fetch(src);
   const manifest = (await res.json()) as DemoManifest;

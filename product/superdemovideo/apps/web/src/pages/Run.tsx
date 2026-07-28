@@ -310,6 +310,12 @@ function Output({ runId, artifacts }: { runId: string; artifacts: Artifact[] }) 
       {demo && (
         <div className="card">
           <iframe className="demo" src={fileUrl(demo.id, "index.html")} title="interactive demo" />
+          <div className="row small muted" style={{ marginTop: 8 }}>
+            <a href={`/v1/runs/${runId}/standalone.html${q}`} download>
+              download as one file
+            </a>
+            <span>Opens without a server. Send it to someone and they can click it.</span>
+          </div>
         </div>
       )}
 
