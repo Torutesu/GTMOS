@@ -22,6 +22,7 @@ docs/
   products/
     superdemovideo-brief.md         Superdemovideo — 背景・競合・ポジショニング(旧 GTM OS)
     superdemovideo-requirements.md  同・要件定義 v1.0(スコープ / 機能要件 / NFR / 受け入れ基準)
+    superdemovideo-architecture.md  同・技術設計 v1.0(パイプライン実装 / データモデル / 原価試算)
 site/
   index.html         LP(EN・デフォルト)
   ja/index.html      LP(JA)
